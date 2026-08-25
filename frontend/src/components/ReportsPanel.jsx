@@ -237,32 +237,45 @@ export default function ReportsPanel({ currentSurvey }) {
                   const hId = hs.hotspot_id ?? hs.id;
                   const pt = projectToMap(hLat, hLon);
                   const isProt = hs.cleanup_priority_level === 'PROTECTED_HABITAT';
+                  const radius = Math.max(34, Math.min(75, Math.sqrt(hs.estimated_area_m2 || 100) * 0.9));
+
                   return (
                     <g key={hId}>
+                      {/* Outer Glowing Area Circle */}
                       <circle
                         cx={pt.x}
                         cy={pt.y}
-                        r={Math.max(26, Math.min(65, Math.sqrt(hs.estimated_area_m2 || 100) * 0.7))}
-                        fill={isProt ? "rgba(6, 182, 212, 0.20)" : "rgba(239, 68, 68, 0.18)"}
+                        r={radius}
+                        fill={isProt ? "rgba(6, 182, 212, 0.18)" : "rgba(239, 68, 68, 0.16)"}
                         stroke={isProt ? "#06b6d4" : "#ef4444"}
                         strokeWidth="2"
-                        strokeDasharray={isProt ? "none" : "4 3"}
-                        className="animate-pulse"
+                        strokeDasharray={isProt ? "none" : "5 3"}
                       />
+                      {/* Secondary Concentric Wave */}
+                      <circle
+                        cx={pt.x}
+                        cy={pt.y}
+                        r={radius * 0.65}
+                        fill="none"
+                        stroke={isProt ? "rgba(6, 182, 212, 0.4)" : "rgba(239, 68, 68, 0.35)"}
+                        strokeWidth="1"
+                        strokeDasharray="2 2"
+                      />
+                      {/* Centroid Badge Tag */}
                       <rect
-                        x={pt.x - 45}
-                        y={pt.y - 30}
-                        width="90"
+                        x={pt.x - 48}
+                        y={pt.y - radius - 18}
+                        width="96"
                         height="16"
                         rx="4"
-                        fill="rgba(15, 23, 42, 0.85)"
-                        stroke="#0ea5e9"
-                        strokeWidth="0.8"
+                        fill="rgba(15, 23, 42, 0.90)"
+                        stroke={isProt ? "#06b6d4" : "#f43f5e"}
+                        strokeWidth="1"
                       />
                       <text
                         x={pt.x}
-                        y={pt.y - 19}
-                        fill="#38bdf8"
+                        y={pt.y - radius - 6}
+                        fill={isProt ? "#22d3ee" : "#fda4af"}
                         fontSize="9"
                         fontFamily="monospace"
                         textAnchor="middle"

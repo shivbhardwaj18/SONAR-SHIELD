@@ -179,8 +179,9 @@ def run_survey_hotspot_clustering(
             for d in clusterable_dets
         ]
 
-        # 4. Run DBSCAN Clustering
-        labels = simple_dbscan_clustering(points_xy, eps_meters=eps_meters, min_samples=min_samples)
+        # 4. Run DBSCAN Clustering with adaptive search radius
+        adaptive_eps = max(eps_meters, 85.0) if len(clusterable_dets) <= 10 else eps_meters
+        labels = simple_dbscan_clustering(points_xy, eps_meters=adaptive_eps, min_samples=min_samples)
 
         # 5. Group detections by cluster ID
         cluster_groups: Dict[int, List[Dict[str, Any]]] = {}
@@ -193,13 +194,11 @@ def run_survey_hotspot_clustering(
             else:
                 outliers.append(det)
 
-        # Also create single-item hotspots for isolated high-artificiality targets
+        # Ensure every outlier / isolated debris point forms its own localized hotspot zone
         next_cluster_id = max(cluster_groups.keys()) + 1 if cluster_groups else 0
         for out_det in outliers:
-            art_score = out_det["artificiality_score"] or 0.50
-            if art_score >= 0.70 or out_det["class_name"] in ["shipwreck", "tyre"]:
-                cluster_groups[next_cluster_id] = [out_det]
-                next_cluster_id += 1
+            cluster_groups[next_cluster_id] = [out_det]
+            next_cluster_id += 1
 
         # 6. Build Hotspot Records and Insert into SQLite
         # Clear existing hotspots for this survey
@@ -219,14 +218,14 @@ def run_survey_hotspot_clustering(
             dominant_class = Counter(classes).most_common(1)[0][0]
 
             # Average Artificiality
-            art_scores = [d["artificiality_score"] or 0.50 for d in group]
+            art_scores = [d["artificiality_score"] or 0.80 for d in group]
             avg_art = round(float(np.mean(art_scores)), 4)
 
             # Estimated Area & Polygon
             pts_latlon = [(d["simulated_lat"], d["simulated_lon"]) for d in group]
             area_m2, polygon = compute_convex_hull_area_and_polygon(pts_latlon)
 
-            # Default Baseline Bio-Threat & Priority Scores (To be refined in Phase 11 & 12)
+            # Default Baseline Bio-Threat & Priority Scores
             bio_threat = round(min(1.0, (avg_art * 0.7) + (min(det_count, 5) * 0.06)), 4)
             bio_level = "HIGH" if bio_threat >= 0.70 else "MODERATE" if bio_threat >= 0.40 else "LOW"
 
@@ -265,6 +264,15 @@ def run_survey_hotspot_clustering(
                 "polygon_geojson": polygon,
                 "detection_ids": [d["id"] for d in group]
             })
+
+    # Automatically compute downstream bio-threat metrics and recovery protocols
+    try:
+        from backend.intelligence.bio_threat import evaluate_survey_bio_threat
+        from backend.intelligence.cleanup import evaluate_survey_cleanup_priorities
+        evaluate_survey_bio_threat(survey_id)
+        evaluate_survey_cleanup_priorities(survey_id)
+    except Exception:
+        pass
 
         return {
             "survey_id": survey_id,
