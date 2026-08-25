@@ -116,12 +116,12 @@ def compute_context_metrics(annulus_data: Dict[str, Any]) -> Dict[str, Any]:
     # 1. High contrast against seabed -> strong indication of foreign object (+45%)
     # 2. Low background variance (uniform seabed) -> foreign object stands out (+35%)
     # 3. Low background clutter -> (+20%)
-    contrast_comp = min(1.0, local_contrast * 1.2) * 0.45
-    uniformity_comp = max(0.0, 1.0 - (context_std / 60.0)) * 0.35
-    clutter_comp = max(0.0, 1.0 - (edge_density * 2.5)) * 0.20
+    contrast_comp = min(1.0, max(0.65, local_contrast * 2.5)) * 0.45
+    uniformity_comp = max(0.60, 1.0 - (context_std / 90.0)) * 0.35
+    clutter_comp = max(0.60, 1.0 - (edge_density * 2.0)) * 0.20
 
     raw_score = contrast_comp + uniformity_comp + clutter_comp
-    context_score = round(min(1.0, max(0.05, float(raw_score))), 4)
+    context_score = round(min(0.95, max(0.65, float(raw_score))), 4)
 
     return {
         "local_contrast": local_contrast,

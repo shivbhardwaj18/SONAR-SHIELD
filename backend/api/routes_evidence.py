@@ -149,17 +149,29 @@ def evaluate_single_shape_evidence(detection_id: str):
 @router.get("/detections/{detection_id}/shape-overlay")
 def serve_shape_diagnostic_image(detection_id: str):
     """Streams the contour and convex hull diagnostic image."""
+    os.makedirs(EVIDENCE_CROPS_DIR, exist_ok=True)
+    os.makedirs(CROPS_DIR, exist_ok=True)
     diag_path = os.path.join(EVIDENCE_CROPS_DIR, f"shape_{detection_id}.png")
+    
     if not os.path.exists(diag_path):
         crop_path = os.path.join(CROPS_DIR, f"{detection_id}.png")
-        if os.path.exists(crop_path):
-            crop_bgr = cv2.imread(crop_path)
-            with get_db() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT class_name FROM detections WHERE id = ?", (detection_id,))
-                det = cursor.fetchone()
-                if det and crop_bgr is not None:
-                    evaluate_detection_shape(detection_id, crop_bgr, det["class_name"])
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT d.*, i.filepath FROM detections d JOIN images i ON d.image_id = i.id WHERE d.id = ?", (detection_id,))
+            det = cursor.fetchone()
+            if det:
+                if not os.path.exists(crop_path) and os.path.exists(det["filepath"]):
+                    from backend.detection.yolo_service import SonarDetector
+                    detector = SonarDetector.get_instance()
+                    bbox = [det["bbox_x1"], det["bbox_y1"], det["bbox_x2"], det["bbox_y2"]]
+                    crop = detector.extract_crop(det["filepath"], bbox)
+                    if crop is not None and crop.size > 0:
+                        cv2.imwrite(crop_path, crop)
+                
+                if os.path.exists(crop_path):
+                    crop_bgr = cv2.imread(crop_path)
+                    if crop_bgr is not None:
+                        evaluate_detection_shape(detection_id, crop_bgr, det["class_name"])
 
     if not os.path.exists(diag_path):
         raise HTTPException(status_code=404, detail="Shape diagnostic overlay not available")
@@ -205,16 +217,18 @@ def evaluate_single_shadow_evidence(detection_id: str):
 @router.get("/detections/{detection_id}/shadow-overlay")
 def serve_shadow_diagnostic_image(detection_id: str):
     """Streams the target vs shadow diagnostic image."""
+    os.makedirs(EVIDENCE_CROPS_DIR, exist_ok=True)
     diag_path = os.path.join(EVIDENCE_CROPS_DIR, f"shadow_{detection_id}.png")
     if not os.path.exists(diag_path):
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT d.*, i.filepath FROM detections d JOIN images i ON d.image_id = i.id WHERE d.id = ?", (detection_id,))
             det = cursor.fetchone()
-            if det:
+            if det and os.path.exists(det["filepath"]):
                 full_img = cv2.imread(det["filepath"])
-                bbox = [det["bbox_x1"], det["bbox_y1"], det["bbox_x2"], det["bbox_y2"]]
-                evaluate_detection_shadow(detection_id, full_img, bbox, det["class_name"])
+                if full_img is not None:
+                    bbox = [det["bbox_x1"], det["bbox_y1"], det["bbox_x2"], det["bbox_y2"]]
+                    evaluate_detection_shadow(detection_id, full_img, bbox, det["class_name"])
 
     if not os.path.exists(diag_path):
         raise HTTPException(status_code=404, detail="Shadow diagnostic overlay not available")
@@ -260,18 +274,17 @@ def evaluate_single_context_evidence(detection_id: str):
 @router.get("/detections/{detection_id}/context-overlay")
 def serve_context_diagnostic_image(detection_id: str):
     """Streams the target vs context annulus diagnostic image."""
+    os.makedirs(EVIDENCE_CROPS_DIR, exist_ok=True)
     diag_path = os.path.join(EVIDENCE_CROPS_DIR, f"context_{detection_id}.png")
     if not os.path.exists(diag_path):
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT d.*, i.filepath FROM detections d JOIN images i ON d.image_id = i.id WHERE d.id = ?", (detection_id,))
             det = cursor.fetchone()
-            if det:
+            if det and os.path.exists(det["filepath"]):
                 full_img = cv2.imread(det["filepath"])
-                bbox = [det["bbox_x1"], det["bbox_y1"], det["bbox_x2"], det["bbox_y2"]]
-                evaluate_detection_context(detection_id, full_img, bbox, det["class_name"])
-
-    if not os.path.exists(diag_path):
-        raise HTTPException(status_code=404, detail="Context diagnostic overlay not available")
+                if full_img is not None:
+                    bbox = [det["bbox_x1"], det["bbox_y1"], det["bbox_x2"], det["bbox_y2"]]
+                    evaluate_detection_context(detection_id, full_img, bbox, det["class_name"])
 
     return FileResponse(diag_path, media_type="image/png")

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { 
   UploadCloud, 
   Sparkles, 
@@ -39,6 +39,24 @@ export default function IngestionPanel({
   const [selectedFiles, setSelectedFiles] = useState([]);
 
   const fileInputRef = useRef(null);
+
+  // Deduplicate and filter surveys for clean compact dropdown (Image 1 fix)
+  const cleanSurveysList = useMemo(() => {
+    if (!surveysList || surveysList.length === 0) return [];
+    
+    // Deduplicate by survey ID and keep unique names
+    const seen = new Set();
+    const unique = [];
+    for (const s of surveysList) {
+      const key = `${s.id}_${s.name}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(s);
+      }
+    }
+    // Limit to latest 6 surveys for clean popup
+    return unique.slice(0, 6);
+  }, [surveysList]);
 
   const handleLoadDemo = async () => {
     setLoading(true);
@@ -112,13 +130,13 @@ export default function IngestionPanel({
   return (
     <div className="space-y-6">
       {/* Notice Banner: Scientific Transparency & Geotagging */}
-      <div className="bg-slate-900/90 border border-cyan-500/20 rounded-xl p-4 flex items-start gap-3 shadow-lg">
-        <Info className="text-cyan-400 shrink-0 mt-0.5" size={18} />
-        <div className="text-xs space-y-1">
-          <p className="font-semibold text-slate-200">
-            Phase 1 Active: Standardized Acoustic Ingestion & Automatic Geotagging Engine
+      <div className="bg-sky-50/80 border border-sky-200/80 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
+        <Info className="text-sky-600 shrink-0 mt-0.5" size={18} />
+        <div className="text-xs space-y-0.5">
+          <p className="font-semibold text-slate-800">
+            Standardized Acoustic Ingestion & Automatic Swath Geotagging Engine
           </p>
-          <p className="text-slate-400 leading-relaxed">
+          <p className="text-slate-600 leading-relaxed">
             Side-Scan Sonar (SSS) imagery is ingested, validated for raw byte integrity, assigned deterministic frame identifiers, and registered with consistent <strong>Simulated Survey Coordinates</strong>. Each frame gets sequential GPS trackline geometry along the swath corridor automatically.
           </p>
         </div>
@@ -128,14 +146,14 @@ export default function IngestionPanel({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Quick Actions & Custom Ingestion Form */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="glass-panel p-5 border border-slate-800 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="glass-panel p-6 border border-slate-200 space-y-4 bg-white shadow-soft">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
-                <h3 className="font-tech text-base font-bold text-white tracking-wide flex items-center gap-2">
-                  <PlusCircle className="text-cyan-400" size={18} />
+                <h3 className="font-tech text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                  <PlusCircle className="text-sky-600" size={18} />
                   CREATE NEW ACOUSTIC SURVEY
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-500">
                   Upload new sonar image batches with custom survey labels and starting coordinates.
                 </p>
               </div>
@@ -144,54 +162,54 @@ export default function IngestionPanel({
               <button
                 onClick={handleLoadDemo}
                 disabled={loading}
-                className="flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-cyan-500/20 to-teal-500/20 hover:from-cyan-500/30 hover:to-teal-500/30 text-cyan-300 border border-cyan-500/50 rounded-lg text-xs font-semibold shadow-md shadow-cyan-500/10 transition-all cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm shadow-sky-500/25 transition-all cursor-pointer disabled:opacity-50"
               >
-                <Sparkles size={14} className={loading ? "animate-spin" : "text-cyan-400"} />
+                <Sparkles size={14} className={loading ? "animate-spin" : "text-amber-200"} />
                 <span>{loading ? 'Ingesting...' : 'Load Pre-packaged Demo Survey'}</span>
               </button>
             </div>
 
             {/* Custom Survey Metadata Fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div>
-                <label className="text-slate-400 text-[11px] block mb-1">Survey Name / Label:</label>
+                <label className="text-slate-600 font-medium text-[11px] block mb-1">Survey Name / Label:</label>
                 <input 
                   type="text" 
                   placeholder="e.g. Coastal Survey Mumbai #02"
                   value={surveyName}
                   onChange={(e) => setSurveyName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white transition-all"
                 />
               </div>
 
               <div>
-                <label className="text-slate-400 text-[11px] block mb-1">Survey Description (Optional):</label>
+                <label className="text-slate-600 font-medium text-[11px] block mb-1">Survey Description (Optional):</label>
                 <input 
                   type="text" 
                   placeholder="e.g. Shallow water debris audit"
                   value={surveyDesc}
                   onChange={(e) => setSurveyDesc(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white transition-all"
                 />
               </div>
 
               <div>
-                <label className="text-slate-400 text-[11px] block mb-1">Starting Latitude (°N):</label>
+                <label className="text-slate-600 font-medium text-[11px] block mb-1">Starting Latitude (°N):</label>
                 <input 
                   type="text" 
                   value={startLat}
                   onChange={(e) => setStartLat(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:border-sky-500 focus:bg-white transition-all"
                 />
               </div>
 
               <div>
-                <label className="text-slate-400 text-[11px] block mb-1">Starting Longitude (°E):</label>
+                <label className="text-slate-600 font-medium text-[11px] block mb-1">Starting Longitude (°E):</label>
                 <input 
                   type="text" 
                   value={startLon}
                   onChange={(e) => setStartLon(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:border-sky-500 focus:bg-white transition-all"
                 />
               </div>
             </div>
@@ -203,10 +221,10 @@ export default function IngestionPanel({
               onDragOver={handleDrag}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${
+              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${
                 dragActive 
-                  ? 'border-cyan-400 bg-cyan-950/30' 
-                  : 'border-slate-800 hover:border-cyan-500/40 bg-slate-950/40 hover:bg-slate-900/40'
+                  ? 'border-sky-500 bg-sky-50' 
+                  : 'border-slate-200 hover:border-sky-400 bg-slate-50/60 hover:bg-sky-50/30'
               }`}
             >
               <input 
@@ -217,17 +235,17 @@ export default function IngestionPanel({
                 className="hidden" 
                 onChange={handleFileInputChange} 
               />
-              <div className="w-10 h-10 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-cyan-400 mb-0.5">
+              <div className="w-11 h-11 rounded-full bg-white border border-sky-100 shadow-sm flex items-center justify-center text-sky-600 mb-0.5">
                 <FolderOpen size={20} />
               </div>
-              <p className="text-xs font-medium text-slate-200">
+              <p className="text-xs font-semibold text-slate-700">
                 {selectedFiles.length > 0 ? (
-                  <span className="text-cyan-300 font-bold">{selectedFiles.length} sonar image(s) selected</span>
+                  <span className="text-sky-700 font-bold">{selectedFiles.length} sonar image(s) selected</span>
                 ) : (
-                  <>Drag & drop sonar images here, or <span className="text-cyan-400 underline">browse files</span></>
+                  <>Drag & drop sonar images here, or <span className="text-sky-600 underline font-bold">browse files</span></>
                 )}
               </p>
-              <p className="text-[10px] text-slate-500 font-mono">
+              <p className="text-[11px] text-slate-400 font-mono">
                 PNG, JPG, JPEG, BMP, TIF, TIFF (Single or Multi-Frame Batch)
               </p>
             </div>
@@ -237,7 +255,7 @@ export default function IngestionPanel({
               <button
                 onClick={() => handleFileUpload(selectedFiles)}
                 disabled={loading}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded-lg text-xs font-bold font-mono shadow-lg shadow-cyan-600/25 transition-all cursor-pointer disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-sky-600/25 transition-all cursor-pointer disabled:opacity-50"
               >
                 <UploadCloud size={16} />
                 <span>{loading ? 'Ingesting & Geotagging...' : `Ingest & Launch Survey (${selectedFiles.length} Frames)`}</span>
@@ -246,13 +264,13 @@ export default function IngestionPanel({
 
             {/* Notification messages */}
             {error && (
-              <div className="p-3 bg-red-950/40 border border-red-500/40 rounded-lg flex items-center gap-2 text-xs text-red-300 font-mono">
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700">
                 <AlertCircle size={15} />
                 <span>{error}</span>
               </div>
             )}
             {successMsg && (
-              <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 rounded-lg flex items-center gap-2 text-xs text-emerald-300 font-mono">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-700 font-medium">
                 <CheckCircle2 size={15} />
                 <span>{successMsg}</span>
               </div>
@@ -262,55 +280,57 @@ export default function IngestionPanel({
 
         {/* Right: Active Survey Status & Telemetry */}
         <div className="space-y-4">
-          <div className="glass-panel p-5 border border-slate-800 h-full flex flex-col justify-between">
+          <div className="glass-panel p-6 border border-slate-200 h-full flex flex-col justify-between bg-white shadow-soft">
             <div>
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                <h4 className="font-tech text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                  <HardDrive size={14} className="text-cyan-400" />
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                <h4 className="font-tech text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                  <HardDrive size={14} className="text-sky-600" />
                   ACTIVE SURVEY TELEMETRY
                 </h4>
                 {currentSurvey?.is_demo && (
-                  <span className="text-[10px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded">
+                  <span className="text-[10px] font-mono bg-sky-100 text-sky-800 border border-sky-200 px-2 py-0.5 rounded-full font-bold">
                     DEMO MODE
                   </span>
                 )}
               </div>
 
               {currentSurvey ? (
-                <div className="space-y-3 text-xs font-mono">
+                <div className="space-y-3.5 text-xs">
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Survey ID</span>
-                    <span className="text-cyan-300 font-semibold">{currentSurvey.id}</span>
+                    <span className="text-slate-400 block text-[10px] uppercase font-semibold">Survey ID</span>
+                    <span className="text-sky-700 font-mono font-bold text-sm">{currentSurvey.id}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Survey Label</span>
-                    <span className="text-slate-200">{currentSurvey.name}</span>
+                    <span className="text-slate-400 block text-[10px] uppercase font-semibold">Survey Label</span>
+                    <span className="text-slate-800 font-medium">{currentSurvey.name}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Total Frames</span>
-                    <span className="text-white font-bold">{currentSurvey.total_images}</span>
+                    <span className="text-slate-400 block text-[10px] uppercase font-semibold">Total Frames</span>
+                    <span className="text-slate-900 font-bold text-base">{currentSurvey.total_images}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Ingestion Status</span>
-                    <span className="text-emerald-400 font-bold uppercase">{currentSurvey.status}</span>
+                    <span className="text-slate-400 block text-[10px] uppercase font-semibold">Ingestion Status</span>
+                    <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-bold text-[11px] uppercase inline-block">
+                      {currentSurvey.status}
+                    </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px] uppercase">Simulated Base Grid</span>
-                    <span className="text-slate-400 text-[11px]">18.9220° N, 72.8340° E (Coastal Grid)</span>
+                    <span className="text-slate-400 block text-[10px] uppercase font-semibold">Simulated Base Grid</span>
+                    <span className="text-slate-600 text-[11px] font-mono">18.9220° N, 72.8340° E (Coastal Grid)</span>
                   </div>
 
-                  {/* Survey Switcher Dropdown */}
-                  {surveysList && surveysList.length > 1 && (
-                    <div className="pt-2">
-                      <label className="text-slate-500 block text-[10px] uppercase mb-1">Switch Survey:</label>
+                  {/* Clean Compact Survey Switcher Dropdown (Image 1 fix) */}
+                  {cleanSurveysList && cleanSurveysList.length > 1 && (
+                    <div className="pt-2 border-t border-slate-100">
+                      <label className="text-slate-500 block text-[10px] uppercase font-semibold mb-1.5">Switch Survey:</label>
                       <select 
                         value={currentSurvey.id} 
                         onChange={(e) => onSurveySelect(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-cyan-300 focus:outline-none focus:border-cyan-500"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-sky-800 font-medium focus:outline-none focus:border-sky-500 focus:bg-white transition-all shadow-sm"
                       >
-                        {surveysList.map(s => (
+                        {cleanSurveysList.map(s => (
                           <option key={s.id} value={s.id}>
-                            {s.name} ({s.total_images} frames)
+                            {s.name.length > 32 ? s.name.substring(0, 32) + '...' : s.name} ({s.total_images} frames)
                           </option>
                         ))}
                       </select>
@@ -318,8 +338,8 @@ export default function IngestionPanel({
                   )}
                 </div>
               ) : (
-                <div className="text-center py-8 text-slate-500 text-xs">
-                  <RefreshCw className="animate-spin mx-auto mb-2 text-slate-600" size={20} />
+                <div className="text-center py-8 text-slate-400 text-xs">
+                  <RefreshCw className="animate-spin mx-auto mb-2 text-slate-300" size={20} />
                   <span>No survey loaded. Click "Load Demo" or upload images above.</span>
                 </div>
               )}
@@ -329,24 +349,24 @@ export default function IngestionPanel({
       </div>
 
       {/* Ingested Frames Gallery Grid */}
-      <div className="glass-panel p-5 border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div className="glass-panel p-6 border border-slate-200 space-y-4 bg-white shadow-soft">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div>
-            <h3 className="font-tech text-sm font-bold text-white tracking-wide flex items-center gap-2">
-              <Layers className="text-cyan-400" size={16} />
+            <h3 className="font-tech text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <Layers className="text-sky-600" size={16} />
               INGESTED ACOUSTIC FRAMES ({surveyImages.length})
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500">
               Each frame is standardized with deterministic indexing and simulated spatial coordinates.
             </p>
           </div>
-          <span className="text-xs font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-500/30 px-2.5 py-1 rounded">
+          <span className="text-xs font-mono text-sky-800 bg-sky-50 border border-sky-200 px-3 py-1 rounded-full font-bold">
             {surveyImages.length} Model-Ready Frames
           </span>
         </div>
 
         {surveyImages.length === 0 ? (
-          <div className="text-center py-12 text-slate-500 text-xs font-mono">
+          <div className="text-center py-12 text-slate-400 text-xs font-mono">
             No frames available in this survey.
           </div>
         ) : (
@@ -355,24 +375,24 @@ export default function IngestionPanel({
               <div 
                 key={img.id}
                 onClick={() => setSelectedPreviewImage(img)}
-                className="group bg-slate-950/70 border border-slate-800/90 hover:border-cyan-500/50 rounded-lg p-2 transition-all cursor-pointer space-y-2 relative"
+                className="group bg-slate-50 border border-slate-200 hover:border-sky-400 hover:shadow-md rounded-xl p-2.5 transition-all cursor-pointer space-y-2 relative"
               >
-                <div className="aspect-[4/3] bg-black rounded overflow-hidden relative border border-slate-800">
+                <div className="aspect-[4/3] bg-black rounded-lg overflow-hidden relative border border-slate-200">
                   <img 
                     src={getImageFileUrl(img.id)} 
                     alt={img.filename}
                     className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
                   />
-                  <div className="absolute inset-0 bg-cyan-500/10 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
-                    <Maximize2 size={16} className="text-cyan-300 drop-shadow" />
+                  <div className="absolute inset-0 bg-sky-500/20 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
+                    <Maximize2 size={16} className="text-white drop-shadow" />
                   </div>
                 </div>
 
-                <div className="font-mono text-[10px] space-y-0.5">
-                  <div className="text-cyan-400 font-bold truncate">{img.frame_id}</div>
-                  <div className="text-slate-400 truncate">{img.filename}</div>
-                  <div className="text-slate-500 flex items-center gap-1">
-                    <MapPin size={9} className="text-teal-400" />
+                <div className="text-[11px] space-y-0.5">
+                  <div className="text-sky-700 font-mono font-bold truncate">{img.frame_id}</div>
+                  <div className="text-slate-600 truncate text-[10px]">{img.filename}</div>
+                  <div className="text-slate-500 flex items-center gap-1 font-mono text-[10px]">
+                    <MapPin size={9} className="text-sky-600" />
                     <span>{img.simulated_lat?.toFixed(4)}°N, {img.simulated_lon?.toFixed(4)}°E</span>
                   </div>
                 </div>
@@ -384,22 +404,22 @@ export default function IngestionPanel({
 
       {/* Frame Preview Modal */}
       {selectedPreviewImage && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0b1329] border border-cyan-500/50 rounded-xl max-w-3xl w-full p-5 space-y-4 shadow-2xl animate-fadeIn">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2 font-mono">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <FileImage size={16} className="text-cyan-400" />
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full p-6 space-y-4 shadow-2xl animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 font-mono">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <FileImage size={16} className="text-sky-600" />
                 FRAME PREVIEW: {selectedPreviewImage.frame_id} ({selectedPreviewImage.filename})
               </h3>
               <button 
                 onClick={() => setSelectedPreviewImage(null)}
-                className="text-xs text-slate-400 hover:text-white px-2 py-1 bg-slate-800 rounded cursor-pointer"
+                className="text-xs text-slate-500 hover:text-slate-800 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer font-sans"
               >
                 Close
               </button>
             </div>
 
-            <div className="bg-black rounded-lg overflow-hidden border border-slate-800 max-h-[60vh] flex items-center justify-center">
+            <div className="bg-black rounded-xl overflow-hidden border border-slate-200 max-h-[60vh] flex items-center justify-center">
               <img 
                 src={getImageFileUrl(selectedPreviewImage.id)} 
                 alt={selectedPreviewImage.filename}
@@ -407,18 +427,18 @@ export default function IngestionPanel({
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-2 font-mono text-[11px] bg-slate-950 p-3 rounded-lg border border-slate-800">
+            <div className="grid grid-cols-3 gap-2 font-mono text-[11px] bg-slate-50 p-3.5 rounded-xl border border-slate-200">
               <div>
-                <span className="text-slate-500 block text-[10px]">Dimensions</span>
-                <span className="text-slate-200">{selectedPreviewImage.width} x {selectedPreviewImage.height} px</span>
+                <span className="text-slate-400 block text-[10px]">Dimensions</span>
+                <span className="text-slate-800 font-semibold">{selectedPreviewImage.width} x {selectedPreviewImage.height} px</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px]">File Size</span>
-                <span className="text-slate-200">{selectedPreviewImage.file_size_kb} KB</span>
+                <span className="text-slate-400 block text-[10px]">File Size</span>
+                <span className="text-slate-800 font-semibold">{selectedPreviewImage.file_size_kb} KB</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px]">Simulated GPS</span>
-                <span className="text-cyan-300 font-bold">{selectedPreviewImage.simulated_lat?.toFixed(5)}°N, {selectedPreviewImage.simulated_lon?.toFixed(5)}°E</span>
+                <span className="text-slate-400 block text-[10px]">Simulated GPS</span>
+                <span className="text-sky-700 font-bold">{selectedPreviewImage.simulated_lat?.toFixed(5)}°N, {selectedPreviewImage.simulated_lon?.toFixed(5)}°E</span>
               </div>
             </div>
           </div>

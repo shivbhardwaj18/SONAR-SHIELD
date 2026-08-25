@@ -135,7 +135,17 @@ def load_demo_survey() -> Dict[str, Any]:
     if not os.path.exists(demo_dir):
         raise FileNotFoundError(f"Demo survey directory not found at {demo_dir}")
 
-    # Check for existing demo survey or create new one
+    # Check for existing demo survey and refresh cleanly to avoid duplicate dropdown flooding
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM surveys WHERE is_demo = 1")
+        old_demos = [row[0] for row in cursor.fetchall()]
+        for old_id in old_demos:
+            cursor.execute("DELETE FROM detections WHERE survey_id = ?", (old_id,))
+            cursor.execute("DELETE FROM images WHERE survey_id = ?", (old_id,))
+            cursor.execute("DELETE FROM hotspots WHERE survey_id = ?", (old_id,))
+            cursor.execute("DELETE FROM surveys WHERE id = ?", (old_id,))
+
     survey_name = "DEMO-SURVEY-ALPHA (Simulated Coastal Grid)"
     survey_desc = "Pre-packaged multi-class side-scan sonar demo dataset for instant evaluation."
     

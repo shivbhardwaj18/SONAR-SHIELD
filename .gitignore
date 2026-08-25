@@ -21,3 +21,9 @@ dist/
 Thumbs.db
 *.log
 *.tmp
+
+# Uploads runtime cache & user survey data
+data/uploads/
+
+
+

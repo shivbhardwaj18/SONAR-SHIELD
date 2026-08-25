@@ -18,6 +18,16 @@ EQUIPMENT_RECOMMENDATIONS = {
         "action_protocol": "Deploy ROV for hull integrity inspection. Rig inflatable lift bladders; position oil sheen containment boom before structural hoist.",
         "estimated_duration_hours": 12.0
     },
+    "ghost net": {
+        "equipment": "Diver Pneumatic Mesh Cutters, ROV Grapple Hook & Subsea Hydraulic Net Hauler",
+        "action_protocol": "Careful disentanglement protocol to prevent coral destruction while lifting synthetic netting; safely release trapped marine fauna.",
+        "estimated_duration_hours": 4.5
+    },
+    "ghost_net": {
+        "equipment": "Diver Pneumatic Mesh Cutters, ROV Grapple Hook & Subsea Hydraulic Net Hauler",
+        "action_protocol": "Careful disentanglement protocol to prevent coral destruction while lifting synthetic netting; safely release trapped marine fauna.",
+        "estimated_duration_hours": 4.5
+    },
     "artificial reef": {
         "equipment": "Marine Sanctuary Buoy Marker & Passive Acoustic Monitoring Transponder",
         "action_protocol": "DO NOT REMOVE. Log GPS boundary as an ecological fish sanctuary; deploy monitoring marker.",

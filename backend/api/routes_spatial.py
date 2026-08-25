@@ -129,9 +129,12 @@ def get_survey_hotspots_endpoint(survey_id: str):
         for r in rows:
             hotspots.append({
                 "id": r["id"],
+                "hotspot_id": r["id"],
                 "survey_id": r["survey_id"],
                 "center_lat": r["center_lat"],
                 "center_lon": r["center_lon"],
+                "centroid_lat": r["center_lat"],
+                "centroid_lon": r["center_lon"],
                 "detection_count": r["detection_count"],
                 "dominant_class": r["dominant_class"],
                 "estimated_area_m2": r["estimated_area_m2"],

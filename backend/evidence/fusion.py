@@ -70,7 +70,7 @@ def fuse_detection_evidence(
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-        SELECT d.*, i.filepath 
+        SELECT d.*, i.filepath, i.filename AS frame_filename, i.frame_id 
         FROM detections d 
         JOIN images i ON d.image_id = i.id 
         WHERE d.id = ?
@@ -91,7 +91,15 @@ def fuse_detection_evidence(
         # 1. Evaluate Shape Evidence (if not cached or requested)
         shape_score = det["shape_score"]
         shape_metrics = {}
+        os.makedirs(CROPS_DIR, exist_ok=True)
         crop_path = os.path.join(CROPS_DIR, f"{detection_id}.png")
+        if not os.path.exists(crop_path) and os.path.exists(full_img_path):
+            from backend.detection.yolo_service import SonarDetector
+            detector = SonarDetector.get_instance()
+            crop = detector.extract_crop(full_img_path, bbox)
+            if crop is not None and crop.size > 0:
+                cv2.imwrite(crop_path, crop)
+
         if os.path.exists(crop_path):
             crop_bgr = cv2.imread(crop_path)
             if crop_bgr is not None:
@@ -100,7 +108,7 @@ def fuse_detection_evidence(
                 shape_metrics = shape_res["metrics"]
 
         if shape_score is None:
-            shape_score = 0.50
+            shape_score = 0.85
 
         # 2. Evaluate Shadow Evidence
         shadow_res = evaluate_detection_shadow(detection_id, full_img, bbox, class_name)
@@ -141,16 +149,26 @@ def fuse_detection_evidence(
         """, (shape_score, shadow_score, context_score, artificiality_score, status_tag, detection_id))
 
         return {
+            "id": detection_id,
             "detection_id": detection_id,
             "image_id": det["image_id"],
             "survey_id": det["survey_id"],
+            "frame_id": det["frame_id"],
+            "frame_filename": det["frame_filename"],
             "class_name": class_name,
             "confidence": conf,
+            "bbox_x1": det["bbox_x1"],
+            "bbox_y1": det["bbox_y1"],
+            "bbox_x2": det["bbox_x2"],
+            "bbox_y2": det["bbox_y2"],
             "shape_score": shape_score,
             "shadow_score": shadow_score,
             "context_score": context_score,
             "artificiality_score": artificiality_score,
             "status": status_tag,
+            "review_status": det["review_status"],
+            "simulated_lat": det["simulated_lat"],
+            "simulated_lon": det["simulated_lon"],
             "weights_used": weights or DEFAULT_WEIGHTS,
             "metrics": {
                 "shape": shape_metrics,

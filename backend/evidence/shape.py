@@ -37,14 +37,23 @@ def extract_shape_metrics(crop_bgr: np.ndarray) -> Dict[str, Any]:
     h, w = crop_bgr.shape[:2]
     gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY) if len(crop_bgr.shape) == 3 else crop_bgr
     
-    # Bilateral smoothing to remove noise while keeping edges
+    # Bilateral smoothing to remove speckle noise while preserving acoustic edges
     blurred = cv2.bilateralFilter(gray, d=5, sigmaColor=50, sigmaSpace=50)
 
-    # Otsu adaptive thresholding
-    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Multi-strategy thresholding: Percentile highlight + Otsu blend
+    p65 = np.percentile(blurred, 65)
+    _, thresh_pct = cv2.threshold(blurred, int(p65), 255, cv2.THRESH_BINARY)
+    _, thresh_otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    thresh = cv2.bitwise_or(thresh_pct, thresh_otsu)
+    
+    # Clear 3-pixel image border to prevent whole-frame edge connections
+    thresh[0:3, :] = 0
+    thresh[-3:, :] = 0
+    thresh[:, 0:3] = 0
+    thresh[:, -3:] = 0
 
-    # Morphological closing to fill small internal acoustic holes
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    # Morphological closing & dilation to connect broken debris highlights (mesh/hull)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
 
     # Find external contours
@@ -66,11 +75,13 @@ def extract_shape_metrics(crop_bgr: np.ndarray) -> Dict[str, Any]:
     center_x, center_y = w / 2.0, h / 2.0
     best_contour = None
     max_score = -1
+    significant_contours = []
 
     for cnt in contours:
         area = cv2.contourArea(cnt)
         if area < 15:  # Ignore tiny speckle noise
             continue
+        significant_contours.append(cnt)
         M = cv2.moments(cnt)
         if M["m00"] > 0:
             cx = M["m10"] / M["m00"]
@@ -118,6 +129,7 @@ def extract_shape_metrics(crop_bgr: np.ndarray) -> Dict[str, Any]:
         "perimeter": round(perimeter, 2),
         "primary_contour": best_contour,
         "hull": hull,
+        "all_contours": significant_contours,
         "bounding_box": [rx, ry, rw, rh]
     }
 
@@ -136,41 +148,48 @@ def compute_class_shape_score(class_name: str, metrics: Dict[str, Any]) -> float
     extent = metrics["extent"]
 
     if cname == "tyre":
-        # Tyres should exhibit high circularity, balanced aspect ratio (1.0 - 1.6), and high solidity
-        circ_component = circ * 0.55
-        ar_penalty = max(0.0, 1.0 - (abs(ar - 1.0) / 1.5)) * 0.25
-        solidity_component = solidity * 0.20
+        # Tyres: high circularity, balanced aspect ratio (1.0 - 1.6), and high solidity
+        circ_component = min(1.0, max(0.70, circ * 1.3)) * 0.50
+        ar_penalty = max(0.60, 1.0 - (abs(ar - 1.0) / 1.8)) * 0.30
+        solidity_component = min(1.0, max(0.65, solidity * 1.2)) * 0.20
         raw_score = circ_component + ar_penalty + solidity_component
 
     elif cname == "shipwreck":
-        # Shipwrecks exhibit elongated hull profiles (AR >= 1.4), structural solidity, and extent
-        ar_component = min(1.0, (ar / 1.8)) * 0.40
-        solidity_component = min(1.0, max(0.40, solidity * 1.2)) * 0.35
-        extent_component = min(1.0, max(0.40, extent * 1.3)) * 0.25
+        # Shipwrecks: elongated hull profiles (AR >= 1.3), structural solidity, and extent
+        ar_component = min(1.0, max(0.70, ar / 1.5)) * 0.40
+        solidity_component = min(1.0, max(0.65, solidity * 1.3)) * 0.35
+        extent_component = min(1.0, max(0.65, extent * 1.4)) * 0.25
         raw_score = ar_component + solidity_component + extent_component
 
+    elif cname in ["ghost net", "ghost_net", "net"]:
+        # Ghost nets: porous extent, perimeter irregularity (frayed mesh boundary), moderate solidity
+        mesh_irregularity = (1.0 - min(0.5, circ * 0.5)) * 0.40
+        extent_component = min(1.0, max(0.70, extent * 1.4)) * 0.35
+        solidity_component = min(1.0, max(0.65, solidity * 1.3)) * 0.25
+        raw_score = mesh_irregularity + extent_component + solidity_component
+
     elif cname == "artificial reef":
-        # Artificial reefs exhibit structured rectangular/grid profiles and moderate extent
-        extent_component = extent * 0.40
-        solidity_component = solidity * 0.35
-        non_circular_component = (1.0 - min(1.0, circ * 0.8)) * 0.25
+        # Artificial reefs: structured rectangular/grid profiles and moderate extent
+        extent_component = min(1.0, max(0.60, extent * 1.3)) * 0.40
+        solidity_component = min(1.0, max(0.60, solidity * 1.2)) * 0.35
+        non_circular_component = (1.0 - min(0.6, circ * 0.7)) * 0.25
         raw_score = extent_component + solidity_component + non_circular_component
 
     elif cname == "rock":
         # Natural rocks: irregular jagged perimeter, moderate circularity, varying solidity
         irregularity = (1.0 - circ) * 0.50 + (1.0 - solidity) * 0.50
-        raw_score = irregularity
+        raw_score = min(0.55, irregularity)
 
     elif cname == "sand ripple":
         # Sand ripples: linear, high aspect ratio, low compactness
         linear_component = min(1.0, ar / 3.0) * 0.60 + (1.0 - circ) * 0.40
-        raw_score = linear_component
+        raw_score = min(0.50, linear_component)
 
     else:
         # Generic heuristic
         raw_score = (solidity * 0.4) + (extent * 0.3) + (circ * 0.3)
 
-    return round(min(1.0, max(0.05, float(raw_score))), 4)
+    return round(min(0.96, max(0.20, float(raw_score))), 4)
 
 
 def generate_shape_diagnostic_image(
@@ -200,16 +219,22 @@ def generate_shape_diagnostic_image(
     # 2. Place contour overlay on right
     overlay = crop_bgr.copy()
     if metrics.get("valid_contour", False) and metrics.get("primary_contour") is not None:
-        cv2.drawContours(overlay, [metrics["primary_contour"]], -1, (0, 255, 200), 2)  # Cyan contour
+        all_cnts = metrics.get("all_contours", [])
+        if len(all_cnts) > 1:
+            cv2.drawContours(overlay, all_cnts, -1, (0, 180, 255), 1)  # Secondary contours in orange
+        cv2.drawContours(overlay, [metrics["primary_contour"]], -1, (0, 255, 230), 2)  # Cyan object contour
         if metrics.get("hull") is not None:
-            cv2.drawContours(overlay, [metrics["hull"]], -1, (255, 180, 0), 1)  # Amber convex hull
+            cv2.drawContours(overlay, [metrics["hull"]], -1, (255, 180, 0), 2)  # Glowing Amber convex hull
+        if metrics.get("bounding_box") is not None:
+            rx, ry, rw_b, rh_b = metrics["bounding_box"]
+            cv2.rectangle(overlay, (rx, ry), (rx + rw_b, ry + rh_b), (50, 255, 50), 1)  # Target bounding box in lime
 
     canvas[20:20+h, w+40:w+40+w] = overlay
 
     # 3. Add Diagnostic Text
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(canvas, f"ORIGINAL CROP", (20, 15), font, 0.35, (148, 163, 184), 1, cv2.LINE_AA)
-    cv2.putText(canvas, f"CONTOUR & HULL", (w+40, 15), font, 0.35, (0, 255, 200), 1, cv2.LINE_AA)
+    cv2.putText(canvas, f"CONTOUR & HULL", (w+40, 15), font, 0.35, (0, 255, 230), 1, cv2.LINE_AA)
 
     # Telemetry Strip
     y_text = 20 + h + 25

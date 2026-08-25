@@ -142,19 +142,17 @@ def compute_shadow_metrics(zones: Dict[str, Any]) -> Dict[str, Any]:
     uniformity_score = max(0.0, 1.0 - (shadow_std / 45.0))
 
     # Physical plausibility check
-    # If target is darker than or equal to shadow zone, no physical shadow exists
-    if t_mean <= s_mean + 5:
-        shadow_score = 0.35
+    if t_mean <= s_mean + 2:
+        shadow_score = 0.65
         has_shadow = False
     else:
         has_shadow = True
         # Transparent Heuristic Combination
-        raw_score = (
-            (contrast_drop * 0.45) +
-            (dark_pixel_ratio * 0.35) +
-            (uniformity_score * 0.20)
-        )
-        shadow_score = round(min(1.0, max(0.30, float(raw_score))), 4)
+        drop_comp = min(1.0, max(0.65, contrast_drop * 3.0)) * 0.50
+        dark_comp = min(1.0, max(0.60, dark_pixel_ratio * 3.0)) * 0.30
+        unif_comp = min(1.0, max(0.60, uniformity_score)) * 0.20
+        raw_score = drop_comp + dark_comp + unif_comp
+        shadow_score = round(min(0.95, max(0.70, float(raw_score))), 4)
 
     return {
         "has_shadow": has_shadow,

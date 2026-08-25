@@ -7,7 +7,7 @@ import HotspotsPanel from './components/HotspotsPanel';
 import ReportsPanel from './components/ReportsPanel';
 import JudgeWalkthroughModal from './components/JudgeWalkthroughModal';
 import { fetchHealth, fetchSurveys, fetchSurveyDetails, loadDemoSurvey } from './api';
-import { Radio, Eye, Compass, FileText, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Radio, Eye, Compass, FileText, ArrowRight, ShieldCheck, ScanEye } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('ingestion');
@@ -71,7 +71,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#070c18] text-slate-100 font-sans selection:bg-cyan-500 selection:text-black">
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-sky-500 selection:text-white">
       {/* Top Navbar */}
       <Navbar 
         activeTab={activeTab} 
@@ -120,28 +120,28 @@ export default function App() {
         )}
       </main>
 
-      {/* Embedded Judge Walkthrough & System Architecture Guide */}
-      <JudgeWalkthroughModal 
+      {/* Modern Light Footer */}
+      <footer className="border-t border-slate-200 bg-white/80 backdrop-blur-sm py-4 px-6 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <ScanEye size={16} className="text-sky-600" />
+            <span className="font-bold text-slate-800">SAGAR NETRA</span>
+            <span>• Smart India Hackathon 2026 (#26057)</span>
+          </div>
+
+          <div className="flex items-center gap-4 text-[11px]">
+            <span>Model: <strong>YOLOv8 + Multi-Evidence Physics Layer</strong></span>
+            <span>Target Classes: <strong>Shipwreck • Tyre • Ghost Net</strong></span>
+            <span>Coordinates: <strong>Simulated Swath Navigation Grid</strong></span>
+          </div>
+        </div>
+      </footer>
+
+      {/* Judge Walkthrough Modal */}
+      <JudgeWalkthroughModal
         isOpen={isGuideOpen}
         onClose={() => setIsGuideOpen(false)}
       />
-
-      {/* Footer Strip */}
-      <footer className="border-t border-slate-800/60 bg-[#060a14] px-6 py-3 text-xs text-slate-500 flex flex-wrap items-center justify-between font-mono">
-        <div className="flex items-center gap-2">
-          <ShieldCheck size={14} className="text-cyan-400" />
-          <span>SONAR-SHIELD v1.0.0 — Smart India Hackathon 2026</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setIsGuideOpen(true)}
-            className="text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
-          >
-            System Guide & Judge Walkthrough
-          </button>
-          <span>PROTOTYPE DECISION-SUPPORT SYSTEM</span>
-        </div>
-      </footer>
     </div>
   );
 }

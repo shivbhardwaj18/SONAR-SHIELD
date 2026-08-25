@@ -21,6 +21,18 @@ MATERIAL_PROFILES = {
         "rationale": "Moderate/High toxicity: Potential bunker fuel seepage, heavy metal corrosion, and snag hazard for marine fauna.",
         "remediation_urgency": "HIGH"
     },
+    "ghost net": {
+        "toxicity_factor": 0.90,
+        "hazard_category": "CRITICAL GHOST FISHING & ENTANGLEMENT HAZARD",
+        "rationale": "Critical threat: Non-biodegradable synthetic nylon netting continuously traps marine life and sheds microplastic fibers.",
+        "remediation_urgency": "CRITICAL"
+    },
+    "ghost_net": {
+        "toxicity_factor": 0.90,
+        "hazard_category": "CRITICAL GHOST FISHING & ENTANGLEMENT HAZARD",
+        "rationale": "Critical threat: Non-biodegradable synthetic nylon netting continuously traps marine life and sheds microplastic fibers.",
+        "remediation_urgency": "CRITICAL"
+    },
     "artificial reef": {
         "toxicity_factor": 0.00,
         "hazard_category": "BENEFICIAL MARINE HABITAT / FISH SANCTUARY",
