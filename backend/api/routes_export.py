@@ -78,6 +78,7 @@ def export_survey_geojson_endpoint(survey_id: str):
 
 
 @router.get("/{survey_id}/export/report-html", response_class=HTMLResponse)
+@router.get("/{survey_id}/export/printable", response_class=HTMLResponse)
 def export_survey_report_html_endpoint(survey_id: str):
     """
     Renders styled printable executive HTML briefing document.

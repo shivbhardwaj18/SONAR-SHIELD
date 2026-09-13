@@ -21,13 +21,11 @@ DEFAULT_WEIGHTS_PATH = os.path.abspath(
 CLASS_MAP = {
     0: "shipwreck",
     1: "tyre",
-    2: "artificial reef",
-    3: "rock",
-    4: "sand ripple"
+    2: "ghost net"
 }
 
 # Categorize artificial debris candidates vs natural anomalies
-ARTIFICIAL_CLASSES = {"shipwreck", "tyre", "artificial reef"}
+ARTIFICIAL_CLASSES = {"shipwreck", "tyre", "ghost net", "ghost_net", "net", "artificial reef"}
 NATURAL_CLASSES = {"rock", "sand ripple"}
 
 
@@ -147,16 +145,19 @@ class SonarDetector:
             return None
         
         img_h, img_w = img.shape[:2]
-        x1, y1, x2, y2 = bbox_pixels
+        x1, y1, x2, y2 = int(bbox_pixels[0]), int(bbox_pixels[1]), int(bbox_pixels[2]), int(bbox_pixels[3])
 
         # Add context padding
         pad_x = int((x2 - x1) * padding_pct)
         pad_y = int((y2 - y1) * padding_pct)
 
-        crop_x1 = max(0, x1 - pad_x)
-        crop_y1 = max(0, y1 - pad_y)
-        crop_x2 = min(img_w, x2 + pad_x)
-        crop_y2 = min(img_h, y2 + pad_y)
+        crop_x1 = int(max(0, x1 - pad_x))
+        crop_y1 = int(max(0, y1 - pad_y))
+        crop_x2 = int(min(img_w, x2 + pad_x))
+        crop_y2 = int(min(img_h, y2 + pad_y))
+
+        if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
+            return None
 
         crop = img[crop_y1:crop_y2, crop_x1:crop_x2]
         return crop

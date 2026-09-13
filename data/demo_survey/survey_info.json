@@ -1,0 +1,11 @@
+﻿{
+  "survey_name": "MUMBAI-OFFSHORE-CORRIDOR-2026 (Arabian Sea)",
+  "location": "Mumbai Harbor South Deepwater Channel, Arabian Sea, India",
+  "base_latitude": 18.9150,
+  "base_longitude": 72.8700,
+  "water_body": "Arabian Sea (Mumbai Harbor Fairway)",
+  "survey_type": "Dual-Frequency Side-Scan Sonar (455/900 kHz)",
+  "swath_width_m": 100,
+  "total_images": 5,
+  "description": "Tactical high-resolution sonar survey in Mumbai Harbor South Fairway featuring a 3-point ghost net and wreck scatter cluster and 2 isolated shipping hazards in open marine waters."
+}

@@ -18,9 +18,62 @@ from backend.database.models import ImageMetadata, SurveyResponse
 # Supported image formats for acoustic / sonar data
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
-# Default Demo Survey Reference Coordinates (Arabian Sea Coastal Survey Grid)
-DEFAULT_BASE_LAT = 15.4980
-DEFAULT_BASE_LON = 73.8150
+# Default Base Reference Coordinates (Mumbai Harbor Deepwater Open Sea Channel, Arabian Sea)
+DEFAULT_BASE_LAT = 18.9150
+DEFAULT_BASE_LON = 72.8700
+
+import csv
+
+
+def parse_metadata_csv(csv_path: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Parses a metadata CSV mapping image filenames to exact geographic coordinates, depth, and notes.
+    Supported headers: filename, lat/latitude, lon/longitude, depth/depth_m, heading/heading_deg, notes.
+    """
+    if not os.path.exists(csv_path):
+        return {}
+    meta_by_file = {}
+    try:
+        with open(csv_path, mode='r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Handle possible BOM or alternate column names
+                fname = ""
+                for k, v in row.items():
+                    if k and k.strip().lower() in ["filename", "file", "image", "image_name", "img"]:
+                        fname = (v or "").strip()
+                        break
+                if not fname:
+                    fname = (row.get("filename") or row.get("file") or "").strip()
+                if not fname:
+                    continue
+                try:
+                    lat_str = row.get("latitude") or row.get("lat") or row.get("Lat")
+                    lon_str = row.get("longitude") or row.get("lon") or row.get("Lon") or row.get("lng")
+                    if lat_str is None or lon_str is None:
+                        continue
+                    lat = float(lat_str)
+                    lon = float(lon_str)
+                    depth_m = float(row.get("depth_m") or row.get("depth") or 21.0)
+                    heading = float(row.get("heading_deg") or row.get("heading") or 135.0)
+                    swath_w = float(row.get("swath_width_m") or row.get("swath_width") or 100.0)
+                    target_type = row.get("target_type") or row.get("class") or ""
+                    notes = row.get("notes") or row.get("description") or ""
+
+                    meta_by_file[fname] = {
+                        "lat": lat,
+                        "lon": lon,
+                        "depth_m": depth_m,
+                        "heading_deg": heading,
+                        "swath_width_m": swath_w,
+                        "target_type": target_type,
+                        "notes": notes
+                    }
+                except (ValueError, TypeError):
+                    continue
+    except Exception as e:
+        print(f"Notice: Failed to parse metadata CSV {csv_path}: {e}")
+    return meta_by_file
 
 
 def generate_simulated_coordinates(index: int, base_lat: float = DEFAULT_BASE_LAT, base_lon: float = DEFAULT_BASE_LON) -> Tuple[float, float]:
@@ -95,12 +148,23 @@ def register_image_in_db(
     meta: Dict[str, Any],
     frame_index: int,
     is_demo: bool = False,
-    label_path: Optional[str] = None
+    label_path: Optional[str] = None,
+    custom_lat: Optional[float] = None,
+    custom_lon: Optional[float] = None,
+    base_lat: float = DEFAULT_BASE_LAT,
+    base_lon: float = DEFAULT_BASE_LON
 ) -> str:
-    """Registers an ingested image and assigns simulated survey metadata."""
+    """Registers an ingested image and assigns survey coordinates."""
     image_id = f"IMG_{uuid.uuid4().hex[:8].upper()}"
     frame_id = f"FRAME_{frame_index:04d}"
-    lat, lon = generate_simulated_coordinates(frame_index)
+    
+    if custom_lat is not None and custom_lon is not None:
+        lat, lon = custom_lat, custom_lon
+        is_simulated = 0 if not is_demo else 1
+    else:
+        lat, lon = generate_simulated_coordinates(frame_index, base_lat=base_lat, base_lon=base_lon)
+        is_simulated = 1
+        
     created_at = datetime.utcnow().isoformat()
     has_labels = 1 if (label_path and os.path.exists(label_path)) else 0
 
@@ -112,11 +176,11 @@ def register_image_in_db(
             file_size_kb, frame_id, simulated_lat, simulated_lon,
             is_simulated_coords, is_demo, has_labels, label_path, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             image_id, survey_id, filename, filepath, meta["width"], meta["height"],
             meta.get("channels", 3), meta["file_size_kb"], frame_id, lat, lon,
-            1 if is_demo else 0, has_labels, label_path, created_at
+            is_simulated, 1 if is_demo else 0, has_labels, label_path, created_at
         ))
 
         # Update total_images count on survey
@@ -129,27 +193,57 @@ def register_image_in_db(
 
 def load_demo_survey() -> Dict[str, Any]:
     """
-    Ingests and registers the pre-packaged demo survey images from data/demo_survey/.
+    Ingests and registers the pre-packaged demo survey images from data/demo_survey/
+    with real-world Mumbai Harbor coordinates.
     """
     demo_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "demo_survey"))
     if not os.path.exists(demo_dir):
         raise FileNotFoundError(f"Demo survey directory not found at {demo_dir}")
 
-    # Check for existing demo survey or create new one
-    survey_name = "DEMO-SURVEY-ALPHA (Simulated Coastal Grid)"
-    survey_desc = "Pre-packaged multi-class side-scan sonar demo dataset for instant evaluation."
-    
+    # Check for existing demo survey and refresh cleanly to avoid duplicate dropdown flooding
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM surveys WHERE is_demo = 1")
+        old_demos = [row[0] for row in cursor.fetchall()]
+        for old_id in old_demos:
+            cursor.execute("DELETE FROM detections WHERE survey_id = ?", (old_id,))
+            cursor.execute("DELETE FROM images WHERE survey_id = ?", (old_id,))
+            cursor.execute("DELETE FROM hotspots WHERE survey_id = ?", (old_id,))
+            cursor.execute("DELETE FROM surveys WHERE id = ?", (old_id,))
+
+    # Parse survey_info.json if present
+    survey_info_file = os.path.join(demo_dir, "survey_info.json")
+    survey_name = "MUMBAI-OFFSHORE-CORRIDOR-2026 (Arabian Sea)"
+    survey_desc = "High-resolution side-scan sonar survey in Mumbai Harbor South Channel featuring a 3-point ghost net & wreck scatter cluster and 2 isolated shipping hazards."
+    survey_meta = {
+        "survey_type": "Dual-Frequency Side-Scan Sonar (455/900 kHz)",
+        "location": "Mumbai Harbor South Deepwater Channel, Arabian Sea, India",
+        "base_latitude": 18.9150,
+        "base_longitude": 72.8700,
+        "swath_width_m": 100,
+        "coordinate_mode": "REAL-WORLD OPENSTREETMAP COORDINATES (EPSG:4326)"
+    }
+
+    if os.path.exists(survey_info_file):
+        try:
+            with open(survey_info_file, "r", encoding="utf-8") as f:
+                loaded_info = json.load(f)
+                survey_name = loaded_info.get("survey_name", survey_name)
+                survey_desc = loaded_info.get("description", survey_desc)
+                survey_meta.update(loaded_info)
+        except Exception:
+            pass
+
     survey_id = register_survey_in_db(
         name=survey_name,
         description=survey_desc,
         is_demo=True,
-        metadata={
-            "survey_type": "Side-Scan Sonar Simulated Run",
-            "frequency_khz": 450,
-            "swath_width_m": 100,
-            "coordinate_mode": "DEMO / SIMULATED COORDINATES"
-        }
+        metadata=survey_meta
     )
+
+    # Parse metadata.csv if present
+    csv_file = os.path.join(demo_dir, "metadata.csv")
+    csv_metadata = parse_metadata_csv(csv_file) if os.path.exists(csv_file) else {}
 
     image_patterns = [os.path.join(demo_dir, f"*{ext}") for ext in ALLOWED_EXTENSIONS]
     image_paths = []
@@ -170,6 +264,11 @@ def load_demo_survey() -> Dict[str, Any]:
         label_file = os.path.join(demo_dir, f"{base_name}.txt")
         label_path = label_file if os.path.exists(label_file) else None
 
+        # Check if coordinates exist in CSV
+        img_meta = csv_metadata.get(filename, {})
+        custom_lat = img_meta.get("lat")
+        custom_lon = img_meta.get("lon")
+
         img_id = register_image_in_db(
             survey_id=survey_id,
             filename=filename,
@@ -177,13 +276,19 @@ def load_demo_survey() -> Dict[str, Any]:
             meta=meta,
             frame_index=idx,
             is_demo=True,
-            label_path=label_path
+            label_path=label_path,
+            custom_lat=custom_lat,
+            custom_lon=custom_lon
         )
         registered_images.append({
             "id": img_id,
             "filename": filename,
             "frame_id": f"FRAME_{idx:04d}",
             "dimensions": f"{meta['width']}x{meta['height']}",
+            "latitude": custom_lat,
+            "longitude": custom_lon,
+            "depth_m": img_meta.get("depth_m", 21.0),
+            "notes": img_meta.get("notes", ""),
             "has_ground_truth": bool(label_path)
         })
 
@@ -192,6 +297,8 @@ def load_demo_survey() -> Dict[str, Any]:
         "name": survey_name,
         "total_images": len(registered_images),
         "is_demo": True,
-        "coordinate_note": "SIMULATED SURVEY METADATA",
+        "coordinate_mode": "REAL-WORLD OPENSTREETMAP COORDINATES (EPSG:4326)",
+        "location": survey_meta.get("location", "Mumbai Port & Elephanta South Channel"),
         "images": registered_images
     }
+

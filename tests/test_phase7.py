@@ -38,9 +38,21 @@ def test_fusion_calculation_math():
         shape_score=0.88,
         shadow_score=0.92,
         context_score=0.80,
-        weights=DEFAULT_WEIGHTS
+        weights=DEFAULT_WEIGHTS,
+        class_name="shipwreck"
     )
     assert 0.88 <= score <= 0.90
+
+    # Ghost Net specialized test (Shadow exempt: 50% AI + 30% Shape + 20% Context)
+    # AI=0.86, Shape=0.80, Context=0.70 -> (0.86*0.50) + (0.80*0.30) + (0.70*0.20) = 0.43 + 0.24 + 0.14 = 0.81
+    ghost_score = compute_artificiality_score(
+        conf=0.86,
+        shape_score=0.80,
+        shadow_score=None,
+        context_score=0.70,
+        class_name="ghost net"
+    )
+    assert ghost_score == 0.81
 
     # Custom weights test
     custom_weights = {"ai": 0.50, "shape": 0.50, "shadow": 0.0, "context": 0.0}
@@ -71,19 +83,25 @@ def test_evidence_fusion_api_pipeline():
     assert fuse_data["total_fused"] >= 5
     assert all(d["artificiality_score"] > 0 for d in fuse_data["detections"])
 
-    # 3. Retrieve Full Evidence Dossier for First Detection
-    first_det_id = fuse_data["detections"][0]["detection_id"]
+    # 3. Retrieve Full Evidence Dossier for First Detection (ghost net in demo)
+    first_det = fuse_data["detections"][0]
+    first_det_id = first_det["detection_id"]
     dossier_resp = client.get(f"/api/detections/{first_det_id}/evidence-dossier")
     assert dossier_resp.status_code == 200
     dossier = dossier_resp.json()["dossier"]
     assert dossier["artificiality_score"] is not None
     assert dossier["shape_score"] is not None
-    assert dossier["shadow_score"] is not None
     assert dossier["context_score"] is not None
     assert "crop" in dossier["diagnostic_urls"]
     assert "shape_overlay" in dossier["diagnostic_urls"]
     assert "shadow_overlay" in dossier["diagnostic_urls"]
     assert "context_overlay" in dossier["diagnostic_urls"]
+
+    if dossier["class_name"] == "ghost net":
+        assert dossier["is_ghost_net"] is True
+        assert dossier["shadow_score"] is None
+        assert dossier["metrics"]["shadow"]["is_exempt"] is True
+
 
 
 if __name__ == "__main__":

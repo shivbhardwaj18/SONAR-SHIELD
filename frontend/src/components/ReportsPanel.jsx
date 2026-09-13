@@ -15,26 +15,31 @@ import {
   Eye, 
   Layers,
   Sparkles,
-  Info
+  Info,
+  Database
 } from 'lucide-react';
 import { 
   fetchSurveyDetections, 
   fetchSurveyHotspots, 
   getDetectionCropUrl 
 } from '../api';
+import NauticalOSMMap from './NauticalOSMMap';
 
 const CLASS_COLORS = {
-  'shipwreck': { border: '#f97316', text: '#fb923c', fill: 'rgba(249, 115, 22, 0.2)' },
-  'tyre': { border: '#f59e0b', text: '#fbbf24', fill: 'rgba(245, 158, 11, 0.2)' },
-  'artificial reef': { border: '#06b6d4', text: '#22d3ee', fill: 'rgba(6, 182, 212, 0.2)' },
-  'rock': { border: '#10b981', text: '#34d399', fill: 'rgba(16, 185, 129, 0.2)' },
-  'sand ripple': { border: '#6366f1', text: '#818cf8', fill: 'rgba(99, 102, 241, 0.2)' }
+  'shipwreck': { border: '#ea580c', text: '#c2410c', fill: 'rgba(234, 88, 12, 0.15)' },
+  'tyre': { border: '#d97706', text: '#b45309', fill: 'rgba(217, 119, 6, 0.15)' },
+  'ghost net': { border: '#0284c7', text: '#0369a1', fill: 'rgba(2, 132, 199, 0.15)' },
+  'ghost_net': { border: '#0284c7', text: '#0369a1', fill: 'rgba(2, 132, 199, 0.15)' },
+  'artificial reef': { border: '#0891b2', text: '#0e7490', fill: 'rgba(8, 145, 178, 0.15)' },
+  'rock': { border: '#059669', text: '#047857', fill: 'rgba(5, 150, 105, 0.15)' },
+  'sand ripple': { border: '#4f46e5', text: '#4338ca', fill: 'rgba(79, 70, 229, 0.15)' }
 };
 
 export default function ReportsPanel({ currentSurvey }) {
   const [detections, setDetections] = useState([]);
   const [hotspots, setHotspots] = useState([]);
   const [selectedTarget, setSelectedTarget] = useState(null);
+  const [mapMode, setMapMode] = useState('osm'); // 'osm' | 'radar'
 
   // Table filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -86,355 +91,439 @@ export default function ReportsPanel({ currentSurvey }) {
 
   // Coordinate normalization for Tactical Map projection
   const mapBounds = useMemo(() => {
-    if (detections.length === 0) {
-      return { minLat: 18.920, maxLat: 18.926, minLon: 72.830, maxLon: 72.840 };
-    }
-    const lats = detections.map(d => d.simulated_lat || 18.922);
-    const lons = detections.map(d => d.simulated_lon || 72.834);
-    const pad = 0.0008;
-    return {
-      minLat: Math.min(...lats) - pad,
-      maxLat: Math.max(...lats) + pad,
-      minLon: Math.min(...lons) - pad,
-      maxLon: Math.max(...lons) + pad
-    };
-  }, [detections]);
+    const allCoords = [];
+    detections.forEach(d => {
+      const lat = d.simulated_lat ?? d.lat;
+      const lon = d.simulated_lon ?? d.lon;
+      if (lat !== undefined && lon !== undefined && !isNaN(lat) && !isNaN(lon)) {
+        allCoords.push({ lat: Number(lat), lon: Number(lon) });
+      }
+    });
+    hotspots.forEach(h => {
+      const lat = h.centroid_lat ?? h.center_lat ?? h.lat;
+      const lon = h.centroid_lon ?? h.center_lon ?? h.lon;
+      if (lat !== undefined && lon !== undefined && !isNaN(lat) && !isNaN(lon)) {
+        allCoords.push({ lat: Number(lat), lon: Number(lon) });
+      }
+    });
 
-  // Project (lat, lon) to (x, y) % on SVG canvas
-  const projectCoords = (lat, lon) => {
+    if (allCoords.length === 0) {
+      return { minLat: 15.495, maxLat: 15.505, minLon: 73.810, maxLon: 73.820 };
+    }
+
+    const lats = allCoords.map(c => c.lat);
+    const lons = allCoords.map(c => c.lon);
+    const latMin = Math.min(...lats);
+    const latMax = Math.max(...lats);
+    const lonMin = Math.min(...lons);
+    const lonMax = Math.max(...lons);
+
+    const padLat = Math.max(0.0003, (latMax - latMin) * 0.20);
+    const padLon = Math.max(0.0003, (lonMax - lonMin) * 0.20);
+
+    return {
+      minLat: latMin - padLat,
+      maxLat: latMax + padLat,
+      minLon: lonMin - padLon,
+      maxLon: lonMax + padLon
+    };
+  }, [detections, hotspots]);
+
+  const projectToMap = (lat, lon) => {
+    if (lat === undefined || lon === undefined || isNaN(lat) || isNaN(lon)) {
+      return { x: 250, y: 200 };
+    }
     const { minLat, maxLat, minLon, maxLon } = mapBounds;
-    const xPct = Math.max(5, Math.min(95, ((lon - minLon) / (maxLon - minLon || 0.001)) * 90 + 5));
-    const yPct = Math.max(5, Math.min(95, ((maxLat - lat) / (maxLat - minLat || 0.001)) * 90 + 5));
-    return { xPct, yPct };
+    const latSpan = (maxLat - minLat) || 0.001;
+    const lonSpan = (maxLon - minLon) || 0.001;
+    // Radar center is (250, 200). Margin [90, 410] x [50, 350]
+    const x = 90 + ((Number(lon) - minLon) / lonSpan) * 320;
+    const y = 350 - ((Number(lat) - minLat) / latSpan) * 300; // Inverted Y
+    return { x: Math.max(40, Math.min(460, x)), y: Math.max(30, Math.min(370, y)) };
   };
 
   return (
     <div className="space-y-6">
-      {/* Header & Export Actions Bar */}
-      <div className="glass-panel p-5 border border-slate-800 space-y-4">
+      {/* Top Banner & Export Action Strip */}
+      <div className="glass-panel p-6 border border-slate-200 space-y-4 bg-white shadow-soft">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <FileText className="text-cyan-400" size={20} />
-              <h2 className="font-tech text-lg font-bold text-white tracking-wide">
+              <FileText className="text-sky-600 animate-pulse" size={20} />
+              <h2 className="font-tech text-lg font-bold text-slate-900 tracking-tight">
                 GEOSPATIAL TACTICAL MAP & MULTI-FORMAT EXPORT CENTER
               </h2>
-              <span className="bg-cyan-950 text-cyan-300 border border-cyan-800 text-[10px] font-mono px-2 py-0.5 rounded">
-                GIS & Executive Reports
+              <span className="bg-sky-50 text-sky-800 border border-sky-200 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold">
+                QGIS GeoJSON + CSV + Briefing Dossier
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              <span className="text-cyan-300 font-semibold italic">“Interactive nautical spatial mapping and 1-click downloads for maritime operations.”</span>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Interactive spatial canvas on the Arabian Sea coastal grid, structured dataset streams, and printable executive briefing reports.
             </p>
           </div>
 
-          {/* 1-Click Export Buttons */}
-          <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
-            {currentSurvey && (
-              <>
-                <a
-                  href={`/api/surveys/${currentSurvey.id}/export/csv`}
-                  download
-                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-all cursor-pointer"
-                >
-                  <Download size={13} className="text-cyan-400" />
-                  <span>Download CSV</span>
-                </a>
+          {/* Export Action Buttons */}
+          {currentSurvey && (
+            <div className="flex flex-wrap items-center gap-2.5">
+              <a
+                href={`/api/surveys/${currentSurvey.id}/export/csv`}
+                download
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-all shadow-xs"
+              >
+                <Download size={13} className="text-sky-600" />
+                <span>Download CSV</span>
+              </a>
 
-                <a
-                  href={`/api/surveys/${currentSurvey.id}/export/geojson`}
-                  download
-                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-all cursor-pointer"
-                >
-                  <Download size={13} className="text-teal-400" />
-                  <span>QGIS / GeoJSON</span>
-                </a>
+              <a
+                href={`/api/surveys/${currentSurvey.id}/export/geojson`}
+                download
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-all shadow-xs"
+              >
+                <MapPin size={13} className="text-sky-600" />
+                <span>Export GeoJSON</span>
+              </a>
 
-                <a
-                  href={`/api/surveys/${currentSurvey.id}/export/json`}
-                  download
-                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-all cursor-pointer"
-                >
-                  <Download size={13} className="text-amber-400" />
-                  <span>JSON Dossier</span>
-                </a>
+              <a
+                href={`/api/surveys/${currentSurvey.id}/export/json`}
+                download
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-all shadow-xs"
+              >
+                <Database size={13} className="text-sky-600" />
+                <span>JSON Dossier</span>
+              </a>
 
-                <a
-                  href={`/api/surveys/${currentSurvey.id}/export/report-html`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-bold shadow-lg shadow-cyan-600/20 transition-all cursor-pointer"
-                >
-                  <Printer size={13} />
-                  <span>Print Executive Report</span>
-                </a>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Scientific Honesty Disclaimer Banner */}
-        <div className="p-2.5 bg-slate-950/70 border border-slate-800 rounded-lg flex items-center gap-2 text-[11px] font-mono text-slate-400">
-          <Info size={14} className="text-cyan-400 flex-shrink-0" />
-          <span>
-            <strong className="text-slate-300">SCIENTIFIC HONESTY & SIMULATED COORDINATES:</strong> All latitude/longitude points are deterministically generated on the simulated Arabian Sea Coastal Survey Grid (18.92°N, 72.83°E) for SIH 2026 evaluation.
-          </span>
+              <button
+                onClick={() => window.open(`/api/surveys/${currentSurvey.id}/export/printable`, '_blank')}
+                className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold shadow-md shadow-sky-600/20 transition-all cursor-pointer"
+              >
+                <Printer size={13} />
+                <span>Print Executive Briefing</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Main Workspace Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Interactive Tactical Nautical GIS Map (7 cols) */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="glass-panel p-5 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-tech text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-                <Compass size={16} className="text-cyan-400" />
-                INTERACTIVE NAUTICAL GIS TACTICAL MAP
-              </h3>
-              <span className="text-[10px] font-mono text-slate-500">
-                Grid: EPSG:4326 (WGS 84)
-              </span>
-            </div>
+      {/* Main Tactical Intelligence Workspace */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2 Columns: Tactical Nautical Radar Map Canvas / OpenStreetMap */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="glass-panel p-5 border border-slate-200 space-y-3 bg-white shadow-soft">
+            <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-2.5 text-xs font-mono gap-2">
+              <div className="flex items-center gap-2">
+                <Compass size={14} className="text-sky-600 animate-spin-slow" />
+                <span className="font-bold text-slate-800">
+                  {mapMode === 'osm' ? 'LIVE OPENSTREETMAP NAUTICAL GIS' : 'TACTICAL NAUTICAL RADAR'}
+                </span>
+                <span className="text-[10px] bg-sky-100 text-sky-800 font-bold px-2 py-0.5 rounded-full">
+                  MUMBAI HARBOR CORRIDOR
+                </span>
+              </div>
 
-            {/* Nautical Radar Canvas */}
-            <div className="w-full h-[460px] bg-[#050914] rounded-xl border border-cyan-500/30 relative overflow-hidden flex items-center justify-center p-4">
-              {/* Radar Grid Overlay */}
-              <div 
-                className="absolute inset-0 opacity-15 pointer-events-none" 
-                style={{
-                  backgroundImage: 'radial-gradient(circle, #00f0ff 1px, transparent 1px)',
-                  backgroundSize: '30px 30px'
-                }}
-              ></div>
-
-              {/* Range Rings */}
-              <div className="absolute w-[360px] h-[360px] rounded-full border border-cyan-500/10 pointer-events-none"></div>
-              <div className="absolute w-[240px] h-[240px] rounded-full border border-cyan-500/15 pointer-events-none"></div>
-              <div className="absolute w-[120px] h-[120px] rounded-full border border-cyan-500/20 pointer-events-none"></div>
-
-              {/* Trackline Navigation Axis */}
-              <div className="absolute w-full h-[1px] bg-cyan-500/20 top-1/2 left-0 pointer-events-none"></div>
-              <div className="absolute w-[1px] h-full bg-cyan-500/20 left-1/2 top-0 pointer-events-none"></div>
-
-              {/* SVG Canvas for Tracklines, Hotspots & Detections */}
-              <svg className="w-full h-full absolute inset-0">
-                {/* Survey Transect Path */}
-                {detections.length > 1 && (
-                  <polyline
-                    points={detections
-                      .slice(0, 15)
-                      .map(d => {
-                        const { xPct, yPct } = projectCoords(d.simulated_lat || 18.922, d.simulated_lon || 72.834);
-                        return `${xPct}%,${yPct}%`;
-                      })
-                      .join(' ')}
-                    fill="none"
-                    stroke="#00f0ff"
-                    strokeWidth="1.5"
-                    strokeDasharray="4 3"
-                    className="opacity-40"
-                  />
-                )}
-
-                {/* Hotspot Cluster Circles */}
-                {hotspots.map((hs, idx) => {
-                  const { xPct, yPct } = projectCoords(hs.center_lat, hs.center_lon);
-                  const isProtected = hs.dominant_class?.toLowerCase() === 'artificial reef';
-                  const isP1 = hs.cleanup_priority_level === 'PRIORITY 1';
-                  const circleColor = isProtected ? '#06b6d4' : isP1 ? '#ef4444' : '#f59e0b';
-
-                  return (
-                    <g key={hs.id} className="cursor-pointer">
-                      <circle
-                        cx={`${xPct}%`}
-                        cy={`${yPct}%`}
-                        r="28"
-                        fill={circleColor}
-                        fillOpacity="0.15"
-                        stroke={circleColor}
-                        strokeWidth="1.5"
-                        strokeDasharray="3 3"
-                      />
-                      <text
-                        x={`${xPct}%`}
-                        y={`${yPct - 3}%`}
-                        textAnchor="middle"
-                        fill={circleColor}
-                        fontSize="9"
-                        fontFamily="monospace"
-                        fontWeight="bold"
-                      >
-                        {hs.id}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
-
-              {/* Interactive Target Marker Pins */}
-              {detections.map(d => {
-                const { xPct, yPct } = projectCoords(d.simulated_lat || 18.922, d.simulated_lon || 72.834);
-                const colors = CLASS_COLORS[d.class_name] || { border: '#00ffc8', text: '#00ffc8' };
-                const isSelected = selectedTarget?.id === d.id;
-
-                return (
-                  <button
-                    key={d.id}
-                    onClick={() => setSelectedTarget(d)}
-                    className={`absolute -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border transition-all z-10 cursor-pointer ${
-                      isSelected 
-                        ? 'w-6 h-6 ring-4 ring-cyan-400/50 z-20 scale-125' 
-                        : 'hover:scale-125'
-                    }`}
-                    style={{
-                      left: `${xPct}%`,
-                      top: `${yPct}%`,
-                      backgroundColor: isSelected ? '#00f0ff' : colors.border,
-                      borderColor: '#ffffff'
-                    }}
-                    title={`${d.class_name} (${d.id})`}
-                  />
-                );
-              })}
-
-              {/* Map Telemetry Watermark */}
-              <div className="absolute bottom-2 left-3 font-mono text-[10px] text-slate-500 pointer-events-none">
-                <div>SWATH: 100m LATERAL &bull; DEPTH: 20-35m</div>
-                <div>TRANSECT HEADING: 135° SE</div>
+              {/* View Switcher: OSM vs Radar */}
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg">
+                <button
+                  onClick={() => setMapMode('osm')}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer ${
+                    mapMode === 'osm'
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  OpenStreetMap (OSM)
+                </button>
+                <button
+                  onClick={() => setMapMode('radar')}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all cursor-pointer ${
+                    mapMode === 'radar'
+                      ? 'bg-sky-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Sonar Radar
+                </button>
               </div>
             </div>
 
-            {/* Selected Target Quick Dossier Card */}
-            {selectedTarget && (
-              <div className="p-3 bg-slate-950 rounded-xl border border-cyan-500/50 flex items-center justify-between gap-4 font-mono text-xs animate-fadeIn">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-black rounded border border-slate-700 overflow-hidden flex-shrink-0">
-                    <img 
-                      src={getDetectionCropUrl(selectedTarget.id)} 
-                      alt={selectedTarget.class_name} 
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-cyan-300 font-bold uppercase block">{selectedTarget.class_name}</span>
-                    <span className="text-[10px] text-slate-400">{selectedTarget.simulated_lat.toFixed(5)}°N, {selectedTarget.simulated_lon.toFixed(5)}°E</span>
-                    <div className="text-[10px] text-teal-400 mt-0.5">
-                      Artificiality: {selectedTarget.artificiality_score ? Math.round(selectedTarget.artificiality_score * 100) : 'N/A'}% | Status: {selectedTarget.status}
-                    </div>
-                  </div>
-                </div>
+            {/* Map Viewport */}
+            {mapMode === 'osm' ? (
+              <NauticalOSMMap
+                detections={detections}
+                hotspots={hotspots}
+                survey={currentSurvey}
+                selectedTarget={selectedTarget}
+                onSelectTarget={(t) => setSelectedTarget(t)}
+                height="420px"
+              />
+            ) : (
+              <div className="relative bg-[#071326] rounded-2xl overflow-hidden border border-slate-300 shadow-inner min-h-[400px]">
+                <svg viewBox="0 0 500 400" className="w-full h-full">
+                  {/* Radar Grid Circles */}
+                  <circle cx="250" cy="200" r="160" fill="none" stroke="rgba(14, 165, 233, 0.12)" strokeWidth="1" strokeDasharray="4 4" />
+                  <circle cx="250" cy="200" r="110" fill="none" stroke="rgba(14, 165, 233, 0.15)" strokeWidth="1" />
+                  <circle cx="250" cy="200" r="60" fill="none" stroke="rgba(14, 165, 233, 0.20)" strokeWidth="1" />
+                  <line x1="250" y1="20" x2="250" y2="380" stroke="rgba(14, 165, 233, 0.15)" strokeWidth="1" strokeDasharray="2 4" />
+                  <line x1="50" y1="200" x2="450" y2="200" stroke="rgba(14, 165, 233, 0.15)" strokeWidth="1" strokeDasharray="2 4" />
 
-                <button 
-                  onClick={() => setSelectedTarget(null)}
-                  className="text-xs text-slate-500 hover:text-white px-2 py-1 bg-slate-900 rounded border border-slate-800 cursor-pointer"
-                >
-                  Close
-                </button>
+                  {/* Hotspot Footprint Polygons */}
+                  {hotspots.map((hs) => {
+                    const hLat = hs.centroid_lat ?? hs.center_lat;
+                    const hLon = hs.centroid_lon ?? hs.center_lon;
+                    const hId = hs.hotspot_id ?? hs.id;
+                    const pt = projectToMap(hLat, hLon);
+                    const isProt = hs.cleanup_priority_level === 'PROTECTED_HABITAT';
+
+                    let enclosingRadius = 38;
+                    if (hotspots.length === 1) {
+                      let maxDist = 0;
+                      detections.forEach(d => {
+                        const dLat = d.simulated_lat ?? d.lat;
+                        const dLon = d.simulated_lon ?? d.lon;
+                        if (dLat !== undefined && dLon !== undefined) {
+                          const dPt = projectToMap(dLat, dLon);
+                          const dist = Math.hypot(dPt.x - pt.x, dPt.y - pt.y);
+                          if (dist > maxDist) maxDist = dist;
+                        }
+                      });
+                      enclosingRadius = Math.max(38, maxDist + 24);
+                    } else {
+                      let hsMaxDist = 0;
+                      detections.forEach(d => {
+                        const dLat = d.simulated_lat ?? d.lat;
+                        const dLon = d.simulated_lon ?? d.lon;
+                        if (dLat !== undefined && dLon !== undefined) {
+                          const dPt = projectToMap(dLat, dLon);
+                          const distToThis = Math.hypot(dPt.x - pt.x, dPt.y - pt.y);
+                          const isClosest = hotspots.every(otherHs => {
+                            const oId = otherHs.hotspot_id ?? otherHs.id;
+                            if (oId === hId) return true;
+                            const otherPt = projectToMap(otherHs.centroid_lat ?? otherHs.center_lat, otherHs.centroid_lon ?? otherHs.center_lon);
+                            return distToThis <= Math.hypot(dPt.x - otherPt.x, dPt.y - otherPt.y);
+                          });
+                          if (isClosest && distToThis > hsMaxDist) {
+                            hsMaxDist = distToThis;
+                          }
+                        }
+                      });
+                      enclosingRadius = Math.max(38, hsMaxDist + 24);
+                    }
+
+                    return (
+                      <g key={hId}>
+                        <circle
+                          cx={pt.x}
+                          cy={pt.y}
+                          r={enclosingRadius}
+                          fill={isProt ? "rgba(6, 182, 212, 0.18)" : "rgba(239, 68, 68, 0.16)"}
+                          stroke={isProt ? "#06b6d4" : "#ef4444"}
+                          strokeWidth="2"
+                          strokeDasharray={isProt ? "none" : "5 3"}
+                        />
+                        <circle
+                          cx={pt.x}
+                          cy={pt.y}
+                          r={enclosingRadius * 0.65}
+                          fill="none"
+                          stroke={isProt ? "rgba(6, 182, 212, 0.4)" : "rgba(239, 68, 68, 0.35)"}
+                          strokeWidth="1"
+                          strokeDasharray="2 2"
+                        />
+                        <rect
+                          x={pt.x - 48}
+                          y={pt.y - enclosingRadius - 18}
+                          width="96"
+                          height="16"
+                          rx="4"
+                          fill="rgba(15, 23, 42, 0.90)"
+                          stroke={isProt ? "#06b6d4" : "#f43f5e"}
+                          strokeWidth="1"
+                        />
+                        <text
+                          x={pt.x}
+                          y={pt.y - enclosingRadius - 6}
+                          fill={isProt ? "#22d3ee" : "#fda4af"}
+                          fontSize="9"
+                          fontFamily="monospace"
+                          textAnchor="middle"
+                          fontWeight="bold"
+                        >
+                          {hId} ({hs.detection_count} items)
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Survey Transect Path Line */}
+                  {detections.length > 1 && (
+                    <polyline
+                      points={detections.map(d => {
+                        const pt = projectToMap(d.simulated_lat || 18.922, d.simulated_lon || 72.834);
+                        return `${pt.x},${pt.y}`;
+                      }).join(' ')}
+                      fill="none"
+                      stroke="#0284c7"
+                      strokeWidth="2"
+                      strokeDasharray="4 4"
+                      opacity="0.75"
+                    />
+                  )}
+
+                  {/* Detection Markers */}
+                  {detections.map((det) => {
+                    const pt = projectToMap(det.simulated_lat || 18.922, det.simulated_lon || 72.834);
+                    const style = CLASS_COLORS[det.class_name.toLowerCase()] || { border: '#38bdf8', fill: 'rgba(56, 189, 248, 0.3)' };
+                    const isSelected = selectedTarget?.id === det.id;
+
+                    return (
+                      <g
+                        key={det.id}
+                        className="cursor-pointer"
+                        onClick={() => setSelectedTarget(det)}
+                      >
+                        <circle
+                          cx={pt.x}
+                          cy={pt.y}
+                          r={isSelected ? "7" : "5"}
+                          fill={style.fill}
+                          stroke={isSelected ? "#ffffff" : style.border}
+                          strokeWidth={isSelected ? "2.5" : "1.5"}
+                        />
+                      </g>
+                    );
+                  })}
+                </svg>
+
+                {/* Map Footer Disclaimer */}
+                <div className="absolute bottom-2 left-3 text-[10px] font-mono text-sky-400/80 bg-slate-950/80 px-2.5 py-0.5 rounded border border-sky-900/60">
+                  <span>MUMBAI HARBOR FAIRWAY: 18.9220°N, 72.8340°E</span>
+                </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Column: Searchable Tabular Target Explorer (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="glass-panel p-5 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h3 className="font-tech text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-                <Table size={16} className="text-cyan-400" />
-                SURVEY TARGET EXPLORER ({filteredDetections.length})
-              </h3>
-              <span className="text-[10px] font-mono text-slate-500">Live Telemetry</span>
-            </div>
+        {/* Right Column: Selected Target Detail Card */}
+        <div className="space-y-4">
+          <div className="glass-panel p-5 border border-slate-200 space-y-4 bg-white shadow-soft h-full flex flex-col justify-between">
+            <div>
+              <h4 className="font-tech text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-100 pb-2.5 flex items-center gap-1.5">
+                <Eye size={14} className="text-sky-600" />
+                <span>SPATIAL TARGET INSPECTOR</span>
+              </h4>
 
-            {/* Filter & Search Bar */}
-            <div className="space-y-2 font-mono text-xs">
-              <div className="relative">
-                <Search size={14} className="absolute left-2.5 top-2.5 text-slate-500" />
-                <input 
-                  type="text"
-                  placeholder="Search by ID, class, or notes..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
-                />
-              </div>
+              {selectedTarget ? (
+                <div className="space-y-3.5 pt-2">
+                  <div className="w-full aspect-[4/3] bg-black rounded-xl overflow-hidden border border-slate-300 relative shadow-inner">
+                    <img 
+                      src={getDetectionCropUrl(selectedTarget.id)} 
+                      alt={selectedTarget.class_name} 
+                      className="w-full h-full object-cover" 
+                    />
+                    <span className="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-white/95 text-sky-800 shadow-sm">
+                      {selectedTarget.class_name}
+                    </span>
+                  </div>
 
-              <div className="flex items-center gap-2">
-                <select
-                  value={classFilter}
-                  onChange={(e) => setClassFilter(e.target.value)}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-[11px] text-slate-300 focus:outline-none focus:border-cyan-500"
-                >
-                  <option value="ALL">All Classes</option>
-                  <option value="shipwreck">Shipwreck</option>
-                  <option value="tyre">Tyre</option>
-                  <option value="artificial reef">Artificial Reef</option>
-                  <option value="rock">Rock</option>
-                  <option value="sand ripple">Sand Ripple</option>
-                </select>
-
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-[11px] text-slate-300 focus:outline-none focus:border-cyan-500"
-                >
-                  <option value="ALL">All Statuses</option>
-                  <option value="VALIDATED">Validated</option>
-                  <option value="NEEDS REVIEW">Needs Review</option>
-                  <option value="ARTIFICIAL_STRUCTURE">Artificial Structure</option>
-                  <option value="NATURAL">Natural</option>
-                  <option value="REJECTED">Rejected</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Detections Mini Table */}
-            <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1 font-mono">
-              {filteredDetections.map((d) => {
-                const colors = CLASS_COLORS[d.class_name] || { border: '#00ffc8', text: '#00ffc8' };
-                const isSelected = selectedTarget?.id === d.id;
-
-                return (
-                  <div
-                    key={d.id}
-                    onClick={() => setSelectedTarget(d)}
-                    className={`p-2.5 rounded-lg border transition-all flex items-center justify-between gap-3 cursor-pointer ${
-                      isSelected 
-                        ? 'bg-cyan-950/40 border-cyan-500/60' 
-                        : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-10 h-10 bg-black rounded border border-slate-800 overflow-hidden flex-shrink-0">
-                        <img 
-                          src={getDetectionCropUrl(d.id)} 
-                          alt={d.class_name} 
-                          className="w-full h-full object-contain"
-                        />
-                      </div>
-                      <div className="min-w-0">
-                        <span 
-                          className="text-xs font-bold uppercase block truncate"
-                          style={{ color: colors.text }}
-                        >
-                          {d.class_name}
-                        </span>
-                        <span className="text-[10px] text-slate-400 block truncate">{d.id}</span>
-                      </div>
+                  <div className="space-y-2 text-xs font-mono bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Detection ID:</span>
+                      <span className="text-slate-800 font-bold">{selectedTarget.id}</span>
                     </div>
-
-                    <div className="text-right flex-shrink-0 text-[11px]">
-                      <span className="text-cyan-300 font-bold block">
-                        {d.artificiality_score ? `${Math.round(d.artificiality_score * 100)}%` : 'N/A'}
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">AI Confidence:</span>
+                      <span className="text-slate-800 font-bold">{Math.round(selectedTarget.confidence * 100)}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Artificiality Score:</span>
+                      <span className="text-sky-700 font-bold">{Math.round((selectedTarget.artificiality_score || 0.5) * 100)}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Audit Status:</span>
+                      <span className="text-slate-800 font-bold">{selectedTarget.status}</span>
+                    </div>
+                    <div className="flex justify-between pt-1 border-t border-slate-200">
+                      <span className="text-slate-400">GPS Coordinates:</span>
+                      <span className="text-sky-700 font-bold text-[11px]">
+                        {selectedTarget.simulated_lat?.toFixed(5)}°N, {selectedTarget.simulated_lon?.toFixed(5)}°E
                       </span>
-                      <span className="text-[9px] text-slate-500 block uppercase">{d.status}</span>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ) : (
+                <div className="text-center py-16 text-slate-400 text-xs space-y-2">
+                  <MapPin size={24} className="mx-auto text-slate-300 opacity-60" />
+                  <p>Click any target dot on the radar map to inspect its spatial coordinates and evidence breakdown.</p>
+                </div>
+              )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Survey Detections Table Section */}
+      <div className="glass-panel p-6 border border-slate-200 space-y-4 bg-white shadow-soft">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="font-tech text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <Table size={18} className="text-sky-600" />
+              DETECTIONS & OPERATIONAL DOSSIER TABLE ({filteredDetections.length})
+            </h3>
+            <p className="text-xs text-slate-500">
+              Tabular survey log containing AI confidence, multi-evidence scores, and operator review audit trails.
+            </p>
+          </div>
+
+          {/* Search Bar */}
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Search size={14} className="text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search by ID or Class..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white transition-all font-mono"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Table Viewport */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs font-mono border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 text-[11px] text-slate-400 uppercase bg-slate-50">
+                <th className="py-2.5 px-3">Target ID</th>
+                <th className="py-2.5 px-3">Class</th>
+                <th className="py-2.5 px-3">AI Conf</th>
+                <th className="py-2.5 px-3">Artificiality</th>
+                <th className="py-2.5 px-3">Status</th>
+                <th className="py-2.5 px-3">GPS Coordinates</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredDetections.map((d) => (
+                <tr 
+                  key={d.id} 
+                  onClick={() => setSelectedTarget(d)}
+                  className="hover:bg-sky-50/60 transition-all cursor-pointer"
+                >
+                  <td className="py-2.5 px-3 font-bold text-sky-800">{d.id}</td>
+                  <td className="py-2.5 px-3 uppercase font-semibold text-slate-800">{d.class_name}</td>
+                  <td className="py-2.5 px-3 text-slate-700">{Math.round(d.confidence * 100)}%</td>
+                  <td className="py-2.5 px-3 text-sky-700 font-bold">{Math.round((d.artificiality_score || 0.5) * 100)}%</td>
+                  <td className="py-2.5 px-3">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                      {d.status}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3 text-slate-500 text-[11px]">
+                    {d.simulated_lat?.toFixed(5)}°N, {d.simulated_lon?.toFixed(5)}°E
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

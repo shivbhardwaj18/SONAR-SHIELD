@@ -98,6 +98,12 @@ def get_image_detections(image_id: str):
                 "class_id": r["class_id"],
                 "class_name": r["class_name"],
                 "confidence": r["confidence"],
+                "bbox_x1": x1,
+                "bbox_y1": y1,
+                "bbox_x2": x2,
+                "bbox_y2": y2,
+                "box_width": max(1, x2 - x1),
+                "box_height": max(1, y2 - y1),
                 "bbox": [x1, y1, x2, y2],
                 "bbox_normalized": norm_box,
                 "shape_score": r["shape_score"],
@@ -155,6 +161,7 @@ def get_survey_detections(
 
         detections = []
         for r in rows:
+            x1, y1, x2, y2 = r["bbox_x1"], r["bbox_y1"], r["bbox_x2"], r["bbox_y2"]
             detections.append({
                 "id": r["id"],
                 "image_id": r["image_id"],
@@ -162,7 +169,13 @@ def get_survey_detections(
                 "class_id": r["class_id"],
                 "class_name": r["class_name"],
                 "confidence": r["confidence"],
-                "bbox": [r["bbox_x1"], r["bbox_y1"], r["bbox_x2"], r["bbox_y2"]],
+                "bbox_x1": x1,
+                "bbox_y1": y1,
+                "bbox_x2": x2,
+                "bbox_y2": y2,
+                "box_width": max(1, x2 - x1),
+                "box_height": max(1, y2 - y1),
+                "bbox": [x1, y1, x2, y2],
                 "shape_score": r["shape_score"],
                 "shadow_score": r["shadow_score"],
                 "context_score": r["context_score"],
@@ -184,7 +197,23 @@ def get_survey_detections(
 @router.get("/detections/{detection_id}/crop")
 def get_detection_crop(detection_id: str):
     """Serves the cropped target image for a specific detection."""
+    os.makedirs(CROPS_DIR, exist_ok=True)
     crop_path = os.path.join(CROPS_DIR, f"{detection_id}.png")
+    
+    if not os.path.exists(crop_path):
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT d.*, i.filepath FROM detections d JOIN images i ON d.image_id = i.id WHERE d.id = ?", (detection_id,))
+            det = cursor.fetchone()
+            if det and os.path.exists(det["filepath"]):
+                import cv2
+                from backend.detection.yolo_service import SonarDetector
+                detector = SonarDetector.get_instance()
+                bbox = [det["bbox_x1"], det["bbox_y1"], det["bbox_x2"], det["bbox_y2"]]
+                crop = detector.extract_crop(det["filepath"], bbox)
+                if crop is not None and crop.size > 0:
+                    cv2.imwrite(crop_path, crop)
+
     if not os.path.exists(crop_path):
         raise HTTPException(status_code=404, detail="Detection crop not found on disk")
     return FileResponse(crop_path, media_type="image/png")

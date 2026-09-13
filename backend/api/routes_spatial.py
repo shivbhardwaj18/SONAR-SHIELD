@@ -119,19 +119,35 @@ def compute_survey_hotspots_endpoint(
 def get_survey_hotspots_endpoint(survey_id: str):
     """
     Retrieves all computed Debris Hotspots for a survey from SQLite.
+    If hotspots have not been clustered yet, runs clustering on-the-fly.
     """
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM hotspots WHERE survey_id = ? ORDER BY detection_count DESC, cleanup_priority_score DESC", (survey_id,))
         rows = cursor.fetchall()
 
+        if not rows:
+            # Check if survey has detections
+            cursor.execute("SELECT COUNT(*) FROM detections WHERE survey_id = ?", (survey_id,))
+            det_count = cursor.fetchone()[0]
+            if det_count > 0:
+                try:
+                    run_survey_hotspot_clustering(survey_id=survey_id)
+                    cursor.execute("SELECT * FROM hotspots WHERE survey_id = ? ORDER BY detection_count DESC, cleanup_priority_score DESC", (survey_id,))
+                    rows = cursor.fetchall()
+                except Exception:
+                    pass
+
         hotspots = []
         for r in rows:
             hotspots.append({
                 "id": r["id"],
+                "hotspot_id": r["id"],
                 "survey_id": r["survey_id"],
                 "center_lat": r["center_lat"],
                 "center_lon": r["center_lon"],
+                "centroid_lat": r["center_lat"],
+                "centroid_lon": r["center_lon"],
                 "detection_count": r["detection_count"],
                 "dominant_class": r["dominant_class"],
                 "estimated_area_m2": r["estimated_area_m2"],

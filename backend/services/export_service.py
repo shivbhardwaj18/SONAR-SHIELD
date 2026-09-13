@@ -155,11 +155,11 @@ def generate_executive_report_html(survey_id: str) -> str:
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SONAR-SHIELD Executive Briefing: {s['name']}</title>
+    <title>SAGAR NETRA Executive Briefing: {s['name']}</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #070c18; color: #f1f5f9; padding: 40px; margin: 0; line-height: 1.5; }}
-        .header {{ border-bottom: 2px solid #00f0ff; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end; }}
-        .title {{ font-size: 24px; font-weight: 800; color: #00f0ff; letter-spacing: 1px; }}
+        .header {{ border-bottom: 2px solid #0284c7; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end; }}
+        .title {{ font-size: 24px; font-weight: 800; color: #0284c7; letter-spacing: 1px; }}
         .subtitle {{ font-size: 13px; color: #94a3b8; margin-top: 4px; }}
         .grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 30px; }}
         .card {{ background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 15px; }}
@@ -180,8 +180,8 @@ def generate_executive_report_html(survey_id: str) -> str:
 <body>
     <div class="header">
         <div>
-            <div class="title">SONAR-SHIELD &bull; EXECUTIVE REMEDIATION BRIEFING</div>
-            <div class="subtitle">Smart India Hackathon 2026 &bull; Problem Statement 26057 &bull; Automated Sonar Intelligence</div>
+            <div class="title">SAGAR NETRA &bull; EXECUTIVE REMEDIATION BRIEFING</div>
+            <div class="subtitle">Smart India Hackathon 2026 &bull; Problem Statement #26057 &bull; Automated Sonar Intelligence</div>
         </div>
         <div style="text-align: right; font-size: 12px; color: #94a3b8;">
             <div>Survey: <strong>{s['name']}</strong></div>
