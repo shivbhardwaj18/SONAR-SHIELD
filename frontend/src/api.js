@@ -21,10 +21,12 @@ export async function loadDemoSurvey() {
   return res.json();
 }
 
-export async function uploadSurveyImages(files, surveyName, surveyDesc) {
+export async function uploadSurveyImages(files, surveyName, surveyDesc, startLat, startLon) {
   const formData = new FormData();
   if (surveyName) formData.append('survey_name', surveyName);
   if (surveyDesc) formData.append('survey_description', surveyDesc);
+  if (startLat) formData.append('start_lat', startLat);
+  if (startLon) formData.append('start_lon', startLon);
   
   for (let i = 0; i < files.length; i++) {
     formData.append('files', files[i]);

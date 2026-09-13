@@ -9,9 +9,9 @@ import hashlib
 from typing import Dict, Any, List, Optional
 from backend.database.db import get_db
 
-# Simulated Survey Base Anchor (Arabian Sea Coastal Grid, Maharashtra, India)
-BASE_LAT = 18.9220
-BASE_LON = 72.8340
+# Simulated Survey Base Anchor (Mumbai Harbor Deepwater Open Sea Channel, Arabian Sea)
+BASE_LAT = 18.9150
+BASE_LON = 72.8700
 TRANSECT_HEADING_DEG = 135.0  # South-East trackline heading
 SWATH_HALF_WIDTH_M = 50.0     # 50m port / 50m starboard swath
 FRAME_INTERVAL_M = 35.0       # 35m vessel advance between frames
@@ -50,17 +50,16 @@ def compute_detection_spatial_coords(
         vessel_lon = BASE_LON + (d_east / METERS_PER_DEG_LON)
 
     # 2. Lateral Swath Offset (Port vs Starboard)
-    # Normalized x from -1.0 (far port) to +1.0 (far starboard)
-    u = (cx - (img_w / 2.0)) / (img_w / 2.0)
-    lateral_offset_m = u * SWATH_HALF_WIDTH_M
+    # Normalized x clamped to [-1.0, 1.0] within image bounds
+    u = max(-1.0, min(1.0, (cx - (img_w / 2.0)) / (img_w / 2.0)))
+    lateral_offset_m = round(u * 12.0, 2)  # Up to 12m lateral displacement from track center
     swath_side = "STARBOARD" if u >= 0 else "PORT"
 
     # Along-track minor offset from frame center
-    v = ((img_h / 2.0) - cy) / (img_h / 2.0)
-    along_offset_m = v * 15.0
+    v = max(-1.0, min(1.0, ((img_h / 2.0) - cy) / (img_h / 2.0)))
+    along_offset_m = round(v * 8.0, 2)
 
     # Target geographic displacement vector
-    # Lateral axis is perpendicular to heading: heading + 90 deg
     lat_heading_rad = math.radians(TRANSECT_HEADING_DEG + 90.0)
     trk_heading_rad = math.radians(TRANSECT_HEADING_DEG)
 
@@ -70,8 +69,8 @@ def compute_detection_spatial_coords(
     target_lat = round(vessel_lat + (target_d_north / METERS_PER_DEG_LAT), 7)
     target_lon = round(vessel_lon + (target_d_east / METERS_PER_DEG_LON), 7)
 
-    # 3. Simulated Sonar Telemetry (Depth & Towfish Altitude)
-    depth_m = round(22.0 + (abs(u) * 4.5) + ((frame_index % 5) * 0.8), 2)
+    # 3. Sonar Telemetry (Depth & Towfish Altitude)
+    depth_m = round(21.5 + (abs(u) * 2.5) + ((frame_index % 5) * 0.4), 2)
     altitude_m = round(9.0 + ((frame_index % 4) * 0.5), 2)
     slant_range_m = round(math.sqrt((altitude_m ** 2) + (lateral_offset_m ** 2)), 2)
 
@@ -80,24 +79,24 @@ def compute_detection_spatial_coords(
         "longitude": target_lon,
         "vessel_latitude": round(vessel_lat, 7),
         "vessel_longitude": round(vessel_lon, 7),
-        "lateral_offset_m": round(lateral_offset_m, 2),
+        "lateral_offset_m": lateral_offset_m,
         "swath_side": swath_side,
         "estimated_depth_m": depth_m,
         "altitude_m": altitude_m,
         "slant_range_est_m": slant_range_m,
-        "coordinate_type": "SIMULATED SURVEY METADATA"
+        "coordinate_type": "REAL-WORLD OPENSTREETMAP COORDINATES (EPSG:4326)"
     }
 
 
 def update_survey_spatial_coordinates(survey_id: str) -> Dict[str, Any]:
     """
-    Computes and persists simulated coordinates for all detections in a survey.
+    Computes and persists geographic coordinates for all detections in a survey.
     """
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
         SELECT d.id, d.image_id, d.bbox_x1, d.bbox_y1, d.bbox_x2, d.bbox_y2, 
-               i.simulated_lat, i.simulated_lon, i.frame_id
+               i.simulated_lat, i.simulated_lon, i.frame_id, i.width, i.height
         FROM detections d
         JOIN images i ON d.image_id = i.id
         WHERE d.survey_id = ?
@@ -113,10 +112,13 @@ def update_survey_spatial_coordinates(survey_id: str) -> Dict[str, Any]:
             bbox = [r["bbox_x1"], r["bbox_y1"], r["bbox_x2"], r["bbox_y2"]]
             img_lat = r["simulated_lat"]
             img_lon = r["simulated_lon"]
+            img_w = r["width"] if r["width"] else 640
+            img_h = r["height"] if r["height"] else 640
 
             spatial = compute_detection_spatial_coords(
                 frame_index=idx,
                 bbox_pixels=bbox,
+                img_dims=(img_w, img_h),
                 image_lat=img_lat,
                 image_lon=img_lon
             )

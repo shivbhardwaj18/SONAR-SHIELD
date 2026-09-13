@@ -1,0 +1,6 @@
+﻿filename,latitude,longitude,depth_m,heading_deg,swath_width_m,sensor,target_type,notes
+1.png,18.915100,72.870150,22.4,135.0,100,Klein 4900 SSS,Ghost Net,Dense acoustic net entrapment on seabed (Hotspot Cluster Member A)
+2.png,18.915350,72.870400,23.1,135.0,100,Klein 4900 SSS,Shipwreck,Submerged metallic hull fragment and structural ribbing (Hotspot Cluster Member B)
+3.jpg,18.915200,72.870600,22.8,135.0,100,Klein 4900 SSS,Shipwreck,Associated debris scatter and hull plating (Hotspot Cluster Member C)
+4.jpg,18.922500,72.878000,24.5,135.0,100,Klein 4900 SSS,Shipwreck,Isolated submerged wreck structure in NE shipping lane (~980m NE)
+5.jpeg,18.906000,72.862000,20.5,135.0,100,Klein 4900 SSS,Shipwreck,Isolated discarded acoustic target near outer anchorage (~1.2km SW)

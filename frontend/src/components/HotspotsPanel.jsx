@@ -18,7 +18,9 @@ import {
   Sparkles,
   Info,
   ChevronRight,
-  X
+  X,
+  Map,
+  Grid
 } from 'lucide-react';
 import { 
   fetchSurveyHotspots, 
@@ -31,6 +33,7 @@ import {
   fetchSurveyDetections,
   getDetectionCropUrl
 } from '../api';
+import NauticalOSMMap from './NauticalOSMMap';
 
 const CLASS_COLORS = {
   'shipwreck': { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-700' },
@@ -47,6 +50,7 @@ export default function HotspotsPanel({ currentSurvey }) {
   const [allDetections, setAllDetections] = useState([]);
   const [filterTier, setFilterTier] = useState('ALL'); // ALL, PRIORITY 1, PRIORITY 2, PRIORITY 3, PROTECTED
   const [selectedHotspot, setSelectedHotspot] = useState(null);
+  const [selectedTarget, setSelectedTarget] = useState(null);
 
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [pipelineStage, setPipelineStage] = useState('');
@@ -89,7 +93,7 @@ export default function HotspotsPanel({ currentSurvey }) {
     setSuccessMsg(null);
 
     try {
-      // Stage 1: Detection (ensure detections exist)
+      // Stage 1: Detection
       setPipelineStage('1/5: Running YOLO Inference & Verification...');
       await runSurveyDetection(currentSurvey.id, 0.20);
 
@@ -97,8 +101,8 @@ export default function HotspotsPanel({ currentSurvey }) {
       setPipelineStage('2/5: Fusing Multi-Feature Evidence (Shape, Shadow, Context)...');
       await fuseSurveyEvidence(currentSurvey.id);
 
-      // Stage 3: Simulated Spatial Geolocation
-      setPipelineStage('3/5: Computing Swath Geometry & Simulated Coordinates...');
+      // Stage 3: Spatial Geolocation
+      setPipelineStage('3/5: Computing Swath Geometry & OpenStreetMap Coordinates...');
       await computeSurveySpatial(currentSurvey.id);
 
       // Stage 4: DBSCAN Hotspot Clustering
@@ -161,14 +165,14 @@ export default function HotspotsPanel({ currentSurvey }) {
             <div className="flex items-center gap-2">
               <Compass className="text-sky-600 animate-spin-slow" size={20} />
               <h2 className="font-tech text-lg font-bold text-slate-900 tracking-tight">
-                DEBRIS HOTSPOTS & ACTIONABLE REMEDIATION MATRIX
+                DEBRIS HOTSPOTS & REAL-WORLD OPENSTREETMAP GIS
               </h2>
               <span className="bg-sky-50 text-sky-800 border border-sky-200 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold">
-                DBSCAN + Bio-Threat + Priority
+                OSM + DBSCAN + Bio-Threat Matrix
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              <span className="text-sky-700 font-semibold italic">“Aggregating isolated targets into coherent debris fields with tailored recovery protocols.”</span>
+              <span className="text-sky-700 font-semibold italic">�Geospatial aggregation of acoustic debris targets into actionable real-world nautical coordinates.�</span>
             </p>
           </div>
 
@@ -226,10 +230,38 @@ export default function HotspotsPanel({ currentSurvey }) {
         </div>
       </div>
 
+      {/* Interactive OpenStreetMap (OSM) Real-World Viewport */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+            <Map size={16} className="text-sky-600" />
+            <span>LIVE OPENSTREETMAP NAUTICAL CHART</span>
+            <span className="text-[10px] font-mono text-slate-400">
+              ({allDetections.length} Target Pins | {hotspots.length} Hotspot Zones)
+            </span>
+          </div>
+          <div className="text-[11px] font-mono text-slate-500">
+            Click pins to inspect acoustic crop & telemetry
+          </div>
+        </div>
+
+        <NauticalOSMMap
+          detections={allDetections}
+          hotspots={hotspots}
+          survey={currentSurvey}
+          selectedTarget={selectedTarget}
+          onSelectTarget={(t) => setSelectedTarget(t)}
+          height="480px"
+        />
+      </div>
+
       {/* Filter Tabs Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs pt-2">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-slate-500 font-semibold text-[11px] mr-1">FILTER TIER:</span>
+          <span className="text-slate-500 font-semibold text-[11px] mr-1 flex items-center gap-1">
+            <Grid size={13} className="text-slate-400" />
+            FILTER REMEDIATION FIELDS:
+          </span>
           {[
             { id: 'ALL', label: 'All Fields' },
             { id: 'PRIORITY 1', label: 'Priority 1 (Immediate)' },
@@ -267,13 +299,13 @@ export default function HotspotsPanel({ currentSurvey }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredHotspots.map((hs) => {
+          {filteredHotspots.map((hs, hIndex) => {
             const tierBadge = getTierBadge(hs.cleanup_priority_level, hs.dominant_class);
-            const style = CLASS_COLORS[hs.dominant_class?.toLowerCase()] || { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-700' };
+            const isCluster = (hs.detection_count || 1) >= 2;
 
             return (
               <div
-                key={hs.hotspot_id}
+                key={hs.hotspot_id || hIndex}
                 className="glass-panel p-5 border border-slate-200 space-y-4 hover:border-sky-400 transition-all flex flex-col justify-between bg-white shadow-soft rounded-2xl"
               >
                 <div className="space-y-3">
@@ -281,8 +313,9 @@ export default function HotspotsPanel({ currentSurvey }) {
                   <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
                     <div>
                       <span className="font-mono text-[10px] text-slate-400 block font-semibold">{hs.hotspot_id}</span>
-                      <h3 className="font-tech text-base font-bold text-slate-900 tracking-tight">
-                        Debris Cluster #{hs.cluster_index}
+                      <h3 className="font-tech text-base font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
+                        <span>{isCluster ? '•' : '•'}</span>
+                        <span>{isCluster ? `Debris Cluster #${hIndex + 1}` : `Single Target #${hIndex + 1}`}</span>
                       </h3>
                     </div>
 
@@ -305,11 +338,13 @@ export default function HotspotsPanel({ currentSurvey }) {
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[10px]">Footprint Area</span>
-                      <span className="font-bold text-slate-800 text-[11px]">~{hs.estimated_area_m2} m²</span>
+                      <span className="font-bold text-slate-800 text-[11px]">~{hs.estimated_area_m2} m�</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">Est. Depth</span>
-                      <span className="font-bold text-slate-800 text-[11px]">{hs.avg_depth_m} m</span>
+                      <span className="text-slate-400 block text-[10px]">Centroid</span>
+                      <span className="font-bold text-slate-800 text-[10px]">
+                        {(hs.centroid_lat ?? hs.center_lat)?.toFixed(4)}�N
+                      </span>
                     </div>
                   </div>
 
@@ -359,7 +394,7 @@ export default function HotspotsPanel({ currentSurvey }) {
                   onClick={() => setSelectedHotspot(hs)}
                   className="w-full mt-3 flex items-center justify-center gap-1.5 py-2 bg-slate-100 hover:bg-sky-600 text-slate-700 hover:text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
                 >
-                  <span>Inspect Clustered Targets ({hs.detection_count})</span>
+                  <span>Inspect Zone Targets ({hs.detection_count})</span>
                   <ChevronRight size={14} />
                 </button>
               </div>
@@ -376,10 +411,10 @@ export default function HotspotsPanel({ currentSurvey }) {
               <div>
                 <h3 className="font-tech text-base font-bold text-slate-900 flex items-center gap-2">
                   <Compass size={18} className="text-sky-600" />
-                  HOTSPOT #{selectedHotspot.cluster_index} TARGETS INSPECTION
+                  HOTSPOT #{selectedHotspot.hotspot_id} TARGETS INSPECTION
                 </h3>
                 <span className="text-xs font-mono text-slate-500">
-                  Centroid: {selectedHotspot.centroid_lat?.toFixed(5)}°N, {selectedHotspot.centroid_lon?.toFixed(5)}°E
+                  Centroid: {(selectedHotspot.centroid_lat ?? selectedHotspot.center_lat)?.toFixed(5)}�N, {(selectedHotspot.centroid_lon ?? selectedHotspot.center_lon)?.toFixed(5)}�E
                 </span>
               </div>
               <button 
@@ -393,7 +428,7 @@ export default function HotspotsPanel({ currentSurvey }) {
             {/* Target List in Cluster */}
             <div className="space-y-3">
               {allDetections
-                .filter(d => (selectedHotspot.detection_ids || []).includes(d.id))
+                .filter(d => (selectedHotspot.detection_ids || []).length === 0 || (selectedHotspot.detection_ids || []).includes(d.id))
                 .map((det) => (
                   <div 
                     key={det.id}
@@ -415,7 +450,7 @@ export default function HotspotsPanel({ currentSurvey }) {
                         Artificiality Score: <strong className="text-slate-800">{Math.round((det.artificiality_score || 0.5) * 100)}%</strong>
                       </div>
                       <div className="text-slate-500 text-[10px]">
-                        Status: <span className="text-sky-700 font-bold">{det.status}</span>
+                        Coordinates: <span className="text-sky-700 font-bold">{det.simulated_lat?.toFixed(5)}�N, {det.simulated_lon?.toFixed(5)}�E</span>
                       </div>
                     </div>
                   </div>

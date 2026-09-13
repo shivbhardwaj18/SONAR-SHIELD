@@ -274,12 +274,13 @@ def run_survey_hotspot_clustering(
     except Exception:
         pass
 
-        return {
-            "survey_id": survey_id,
-            "total_hotspots": len(created_hotspots),
-            "clustering_parameters": {
-                "eps_meters": eps_meters,
-                "min_samples": min_samples
-            },
-            "hotspots": created_hotspots
-        }
+    return {
+        "survey_id": survey_id,
+        "total_hotspots": len(created_hotspots),
+        "clustering_parameters": {
+            "eps_meters": eps_meters,
+            "min_samples": min_samples
+        },
+        "hotspots": created_hotspots
+    }
+

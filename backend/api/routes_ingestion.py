@@ -16,6 +16,7 @@ from backend.services.ingestion import (
     register_survey_in_db,
     register_image_in_db,
     load_demo_survey,
+    parse_metadata_csv,
     ALLOWED_EXTENSIONS
 )
 
@@ -59,7 +60,7 @@ def health_check():
 
 @router.post("/surveys/load-demo")
 def trigger_load_demo_survey():
-    """Loads and registers the 10 pre-packaged demo sonar images and auto-runs the full pipeline."""
+    """Loads and registers the Mumbai Harbor demo sonar dataset and auto-runs the full pipeline."""
     try:
         result = load_demo_survey()
         survey_id = result["survey_id"]
@@ -84,7 +85,7 @@ def trigger_load_demo_survey():
 
         return {
             "status": "success",
-            "message": f"Successfully loaded and processed demo survey with {result['total_images']} sonar frames across all intelligence layers.",
+            "message": f"Successfully loaded and processed demo survey '{result.get('name')}' with {result['total_images']} sonar frames across all intelligence layers.",
             "data": result
         }
     except Exception as e:
@@ -98,29 +99,106 @@ def trigger_load_demo_survey():
 async def upload_sonar_images(
     survey_name: Optional[str] = Form("Custom Acoustic Survey"),
     survey_description: Optional[str] = Form("User uploaded side-scan sonar image batch"),
+    start_lat: Optional[float] = Form(None),
+    start_lon: Optional[float] = Form(None),
     files: List[UploadFile] = File(...)
 ):
     """
-    Accepts single or multi-image upload of side-scan sonar imagery.
-    Validates, assigns simulated metadata, and stores in SQLite.
+    Accepts single or multi-image upload of side-scan sonar imagery, with optional survey_info.json and metadata.csv.
+    Validates, assigns metadata, and stores in SQLite.
     """
     if not files:
-        raise HTTPException(status_code=400, detail="No image files provided.")
+        raise HTTPException(status_code=400, detail="No files provided.")
+
+    # Preliminary pass: inspect if survey_info.json or metadata.csv are present in files
+    temp_dir = os.path.join(UPLOAD_DIR, "staging_" + os.urandom(4).hex())
+    os.makedirs(temp_dir, exist_ok=True)
+
+    csv_metadata = {}
+    json_info = {}
+    image_files = []
+
+    for file in files:
+        fname = file.filename or "unknown"
+        f_lower = fname.lower()
+        if f_lower.endswith(".csv"):
+            csv_path = os.path.join(temp_dir, "metadata.csv")
+            with open(csv_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            csv_metadata = parse_metadata_csv(csv_path)
+        elif f_lower.endswith(".json"):
+            json_path = os.path.join(temp_dir, "survey_info.json")
+            with open(json_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            try:
+                with open(json_path, "r", encoding="utf-8-sig") as jf:
+                    json_info = json.load(jf)
+            except Exception as e:
+                print(f"Notice: Failed to parse uploaded JSON file {fname}: {e}")
+        else:
+            image_files.append(file)
+
+    # Determine final survey name and description
+    final_name = (
+        json_info.get("survey_name") 
+        or json_info.get("name") 
+        or (survey_name.strip() if survey_name and survey_name.strip() != "Custom Acoustic Survey" else None)
+        or json_info.get("survey_id")
+        or survey_name 
+        or "Custom Acoustic Survey"
+    )
+
+    final_desc = (
+        json_info.get("description")
+        or json_info.get("desc")
+        or survey_description
+        or "User uploaded side-scan sonar image batch"
+    )
+
+    # Determine base coordinates (from survey_info.json, or form, or open sea default 18.9150, 72.8700)
+    base_lat = float(
+        json_info.get("base_latitude") 
+        or json_info.get("latitude") 
+        or json_info.get("start_lat") 
+        or (start_lat if start_lat is not None else 18.9150)
+    )
+    base_lon = float(
+        json_info.get("base_longitude") 
+        or json_info.get("longitude") 
+        or json_info.get("start_lon") 
+        or (start_lon if start_lon is not None else 72.8700)
+    )
+
+    survey_meta = {
+        "source": "User Upload",
+        "coordinate_mode": "OPENSTREETMAP / SURVEY METADATA",
+        "base_latitude": base_lat,
+        "base_longitude": base_lon
+    }
+    if json_info:
+        survey_meta.update(json_info)
 
     survey_id = register_survey_in_db(
-        name=survey_name or "Custom Survey",
-        description=survey_description,
+        name=final_name,
+        description=final_desc,
         is_demo=False,
-        metadata={"source": "User Upload", "coordinate_mode": "DEMO / SIMULATED COORDINATES"}
+        metadata=survey_meta
     )
 
     survey_upload_dir = os.path.join(UPLOAD_DIR, survey_id)
     os.makedirs(survey_upload_dir, exist_ok=True)
 
+    # Move staged files if any
+    if os.path.exists(os.path.join(temp_dir, "metadata.csv")):
+        shutil.move(os.path.join(temp_dir, "metadata.csv"), os.path.join(survey_upload_dir, "metadata.csv"))
+    if os.path.exists(os.path.join(temp_dir, "survey_info.json")):
+        shutil.move(os.path.join(temp_dir, "survey_info.json"), os.path.join(survey_upload_dir, "survey_info.json"))
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
     saved_images = []
     skipped_files = []
 
-    for idx, file in enumerate(files, start=1):
+    for idx, file in enumerate(image_files, start=1):
         filename = file.filename or f"image_{idx}.png"
         ext = os.path.splitext(filename)[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
@@ -137,13 +215,21 @@ async def upload_sonar_images(
             skipped_files.append({"filename": filename, "reason": err or "Invalid image"})
             continue
 
+        img_meta = csv_metadata.get(filename, {})
+        custom_lat = img_meta.get("lat")
+        custom_lon = img_meta.get("lon")
+
         image_id = register_image_in_db(
             survey_id=survey_id,
             filename=filename,
             filepath=target_path,
             meta=meta,
             frame_index=idx,
-            is_demo=False
+            is_demo=False,
+            custom_lat=custom_lat,
+            custom_lon=custom_lon,
+            base_lat=base_lat,
+            base_lon=base_lon
         )
 
         saved_images.append({
@@ -151,20 +237,25 @@ async def upload_sonar_images(
             "filename": filename,
             "frame_id": f"FRAME_{idx:04d}",
             "dimensions": f"{meta['width']}x{meta['height']}",
+            "latitude": custom_lat if custom_lat is not None else base_lat,
+            "longitude": custom_lon if custom_lon is not None else base_lon,
             "size_kb": meta["file_size_kb"]
         })
 
     if not saved_images:
         raise HTTPException(
             status_code=400,
-            detail=f"None of the uploaded files were valid. Errors: {skipped_files}"
+            detail=f"None of the uploaded files were valid images. Errors: {skipped_files}"
         )
 
     return {
         "status": "success",
         "survey_id": survey_id,
+        "survey_name": final_name,
         "total_uploaded": len(saved_images),
         "total_skipped": len(skipped_files),
+        "has_custom_metadata": bool(csv_metadata),
+        "has_survey_info": bool(json_info),
         "images": saved_images,
         "skipped": skipped_files
     }

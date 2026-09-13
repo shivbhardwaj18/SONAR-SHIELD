@@ -31,11 +31,11 @@ export default function IngestionPanel({
   const [dragActive, setDragActive] = useState(false);
   const [selectedPreviewImage, setSelectedPreviewImage] = useState(null);
 
-  // Custom Survey Form State
+  // Custom Survey Form State (Defaults to Mumbai Harbor South Deepwater Fairway)
   const [surveyName, setSurveyName] = useState('');
   const [surveyDesc, setSurveyDesc] = useState('');
-  const [startLat, setStartLat] = useState('18.9220');
-  const [startLon, setStartLon] = useState('72.8340');
+  const [startLat, setStartLat] = useState('18.9150');
+  const [startLon, setStartLon] = useState('72.8700');
   const [selectedFiles, setSelectedFiles] = useState([]);
 
   const fileInputRef = useRef(null);
@@ -44,7 +44,6 @@ export default function IngestionPanel({
   const cleanSurveysList = useMemo(() => {
     if (!surveysList || surveysList.length === 0) return [];
     
-    // Deduplicate by survey ID and keep unique names
     const seen = new Set();
     const unique = [];
     for (const s of surveysList) {
@@ -54,9 +53,42 @@ export default function IngestionPanel({
         unique.push(s);
       }
     }
-    // Limit to latest 6 surveys for clean popup
     return unique.slice(0, 6);
   }, [surveysList]);
+
+  // Inspect uploaded/dropped files for survey_info.json to auto-fill form fields
+  const processFiles = (fileArray) => {
+    setSelectedFiles(fileArray);
+    setError(null);
+
+    const jsonFile = fileArray.find(f => f.name.toLowerCase().endsWith('.json'));
+    if (jsonFile) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const info = JSON.parse(e.target.result);
+          if (info.survey_name || info.name) {
+            setSurveyName(info.survey_name || info.name);
+          }
+          if (info.description || info.desc) {
+            setSurveyDesc(info.description || info.desc);
+          }
+          if (info.base_latitude !== undefined || info.latitude !== undefined || info.start_lat !== undefined) {
+            const lat = info.base_latitude ?? info.latitude ?? info.start_lat;
+            setStartLat(String(lat));
+          }
+          if (info.base_longitude !== undefined || info.longitude !== undefined || info.start_lon !== undefined) {
+            const lon = info.base_longitude ?? info.longitude ?? info.start_lon;
+            setStartLon(String(lon));
+          }
+          setSuccessMsg(`Auto-filled survey parameters from '${jsonFile.name}'! (Name: ${info.survey_name || info.name || 'Loaded'})`);
+        } catch (err) {
+          console.warn('Failed to parse survey JSON:', err);
+        }
+      };
+      reader.readAsText(jsonFile);
+    }
+  };
 
   const handleLoadDemo = async () => {
     setLoading(true);
@@ -84,8 +116,14 @@ export default function IngestionPanel({
       const nameToUse = surveyName.trim() || `Acoustic Survey (${new Date().toLocaleTimeString()})`;
       const descToUse = surveyDesc.trim() || `Geotagged Survey at ${startLat}°N, ${startLon}°E`;
 
-      const res = await uploadSurveyImages(files, nameToUse, descToUse);
-      setSuccessMsg(`Created Survey ${res.survey_id} and ingested ${res.total_uploaded} sonar frame(s)!`);
+      const res = await uploadSurveyImages(
+        files, 
+        nameToUse, 
+        descToUse, 
+        parseFloat(startLat) || 18.9150, 
+        parseFloat(startLon) || 72.8700
+      );
+      setSuccessMsg(`Created Survey '${res.survey_name || res.survey_id}' and ingested ${res.total_uploaded} sonar frame(s)!`);
       
       // Reset form
       setSurveyName('');
@@ -117,13 +155,13 @@ export default function IngestionPanel({
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      setSelectedFiles(Array.from(e.dataTransfer.files));
+      processFiles(Array.from(e.dataTransfer.files));
     }
   };
 
   const handleFileInputChange = (e) => {
     if (e.target.files && e.target.files.length > 0) {
-      setSelectedFiles(Array.from(e.target.files));
+      processFiles(Array.from(e.target.files));
     }
   };
 
@@ -231,7 +269,7 @@ export default function IngestionPanel({
                 ref={fileInputRef}
                 type="file" 
                 multiple 
-                accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff" 
+                accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff,.csv,.json" 
                 className="hidden" 
                 onChange={handleFileInputChange} 
               />
@@ -240,13 +278,13 @@ export default function IngestionPanel({
               </div>
               <p className="text-xs font-semibold text-slate-700">
                 {selectedFiles.length > 0 ? (
-                  <span className="text-sky-700 font-bold">{selectedFiles.length} sonar image(s) selected</span>
+                  <span className="text-sky-700 font-bold">{selectedFiles.length} file(s) selected (Images, metadata.csv, survey_info.json)</span>
                 ) : (
-                  <>Drag & drop sonar images here, or <span className="text-sky-600 underline font-bold">browse files</span></>
+                  <>Drag & drop sonar images + optional <span className="text-sky-600 underline font-bold">metadata.csv / survey_info.json</span>, or browse files</>
                 )}
               </p>
               <p className="text-[11px] text-slate-400 font-mono">
-                PNG, JPG, JPEG, BMP, TIF, TIFF (Single or Multi-Frame Batch)
+                Supports Sonar Images (.png, .jpg, .jpeg) + Optional <strong className="text-slate-600">metadata.csv</strong> & <strong className="text-slate-600">survey_info.json</strong>
               </p>
             </div>
 
